@@ -26,6 +26,17 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DIRECT_URL: z.string().optional(),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters long'),
+  JWT_EXPIRES_IN: z.string().default('24h'),
+  COOKIE_NAME: z.string().default('faultlab_auth'),
+  API_TEST_ENCRYPTION_KEY: z
+    .string()
+    .min(32, 'API_TEST_ENCRYPTION_KEY must be at least 32 characters long')
+    .default('your_64_hex_character_encryption_key_at_least_32_bytes_long'),
+  ALLOW_LOCAL_NETWORK_API_TESTING: z
+    .string()
+    .default('false')
+    .transform((val) => val === 'true'),
 });
 
 const parseEnv = () => {

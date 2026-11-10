@@ -1,10 +1,12 @@
 import express, { type Application } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { apiRouter } from './routes/index.js';
+import { mockRouter } from './modules/mock/mock.routes.js';
 
 export const createApp = (): Application => {
   const app = express();
@@ -23,17 +25,21 @@ export const createApp = (): Application => {
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     })
   );
 
   // Standard middleware
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
   app.use(requestLogger);
 
   // Mount API V1 routes
   app.use('/api/v1', apiRouter);
+
+  // Mount Mock simulation runtime routes (public, unauthenticated)
+  app.use('/mock', mockRouter);
 
   // Fallback 404 handler for unknown routes
   app.use(notFoundHandler);

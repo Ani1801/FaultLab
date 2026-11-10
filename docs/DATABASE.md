@@ -164,3 +164,309 @@ await prisma.$queryRaw`SELECT 1`;
 - If connected: response includes exact latency in milliseconds.
 - If disconnected: returns detailed diagnostic message while keeping the Express server operational.
 
+---
+
+## 7. Phase 3A: Workspace Queries & Isolation Patterns
+
+### 7.1 Multi-Tenant Filtering & Atomic Mutation Patterns
+In multi-tenant applications, failing to scope queries by the authenticated user's ID introduces Insecure Direct Object Reference (IDOR) vulnerabilities and race conditions. In FaultLab:
+
+```typescript
+// Safe Workspace Retrieval (Read)
+const workspace = await prisma.workspace.findFirst({
+  where: {
+    id: workspaceId,
+    ownerId: userId, // Scoped to owner
+  },
+});
+
+// Safe Workspace Mutation (Update)
+const updateResult = await prisma.workspace.updateMany({
+  where: { id: workspaceId, ownerId: userId },
+  data: { name: trimmedName },
+});
+if (updateResult.count === 0) throw new NotFoundError('Workspace not found');
+
+// Safe Workspace Mutation (Delete)
+const deleteResult = await prisma.workspace.deleteMany({
+  where: { id: workspaceId, ownerId: userId },
+});
+if (deleteResult.count === 0) throw new NotFoundError('Workspace not found');
+```
+
+### 7.2 Index Optimization
+Workspaces are heavily queried by `ownerId` when rendering user dashboards. The schema explicitly declares:
+```prisma
+@@index([ownerId])
+```
+This produces a B-tree index in PostgreSQL on the `ownerId` column, eliminating table scans and ensuring $O(\log N)$ lookups even as the number of workspaces scales.
+
+### 7.3 Cascading Deletion Strategy
+The foreign key constraint uses `onDelete: Cascade`:
+```prisma
+owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+```
+- When a `User` account is deleted, PostgreSQL automatically cleans up all associated `workspaces` in the same transaction, preventing orphan records.
+- When an individual `Workspace` is deleted via `DELETE /api/v1/workspaces/:id`, only that single workspace record (and in future phases, its associated simulation projects/rules) is removed, without altering the owner `User` account.
+
+---
+
+## 8. Phase 3B: Project Entity & Relational Cascades
+
+### 8.1 Schema Representation
+```prisma
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@map("projects")
+}
+```
+
+### 8.2 Two-Tier Cascade Integrity
+PostgreSQL enforces referential integrity across the entire tree:
+1. `User` deletion → triggers cascade to all owned `workspaces` → triggers cascade to all nested `projects`.
+2. `Workspace` deletion → triggers cascade to all nested `projects` in that workspace.
+3. `Project` deletion → removes only the project row; parent `Workspace` and `User` remain unchanged.
+
+### 8.3 Relational Ownership Traversal
+Because `Project` relies on `workspaceId`, relation filters in Prisma execute atomic checks:
+```typescript
+await prisma.project.updateMany({
+  where: {
+    id: projectId,
+    workspace: { ownerId: userId },
+  },
+  data: updateData,
+});
+```
+This maps to an optimized SQL predicate:
+```sql
+UPDATE projects SET ...
+WHERE id = $1 AND EXISTS (
+  SELECT 1 FROM workspaces
+  WHERE workspaces.id = projects."workspaceId" AND workspaces."ownerId" = $2
+);
+```
+
+---
+
+## 9. Phase 4: MockEndpoint Entity & Simulation Metadata
+
+### 9.1 Schema Definition
+```prisma
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+model MockEndpoint {
+  id              String      @id @default(uuid())
+  projectId       String
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  method          HttpMethod
+  path            String
+  statusCode      Int         @default(200)
+  responseBody    Json?       @default("{}")
+  responseHeaders Json?
+  responseDelay   Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([projectId, method, path])
+  @@index([projectId])
+  @@map("mock_endpoints")
+}
+```
+
+### 9.2 Key Constraints & Indexing Decisions
+1. **Compound Uniqueness (`@@unique([projectId, method, path])`)**:
+   - Guarantees at the database level that no two endpoints in the same project share the same HTTP method and URL path.
+   - Prevents race conditions during concurrent endpoint creation.
+2. **Project Index (`@@index([projectId])`)**:
+   - Accelerates runtime retrieval: when an incoming request hits `/mock/:projectId/*`, PostgreSQL performs an indexed lookup on `projectId` in $O(\log N)$ time.
+3. **Three-Tier Cascade Integrity**:
+   - `User` deleted → cascades to `workspaces` → cascades to `projects` → cascades to `mock_endpoints`.
+   - `Workspace` deleted → cascades to its `projects` → cascades to its `mock_endpoints`.
+   - `Project` deleted → cascades directly to its `mock_endpoints`.
+4. **JSON Support (`Json?`)**:
+   - Native PostgreSQL `jsonb` storage provides high-performance serialization and deserialization for response payloads and custom HTTP response headers.
+
+---
+
+## 10. Phase 5: Fault Injection Schema & Database Decisions
+
+### 10.1 Schema Extension
+```prisma
+enum FailureMode {
+  NONE
+  ALWAYS
+  RANDOM
+}
+
+model MockEndpoint {
+  id                  String      @id @default(uuid())
+  projectId           String
+  project             Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                String
+  method              HttpMethod
+  path                String
+  statusCode          Int         @default(200)
+  responseBody        Json?       @default("{}")
+  responseHeaders     Json?
+  responseDelay       Int         @default(0)
+  faultEnabled        Boolean     @default(false)
+  failureMode         FailureMode @default(NONE)
+  failureRate         Int         @default(0)
+  failureStatusCode   Int         @default(500)
+  failureResponseBody Json?       @default("{\"error\": \"Internal Server Error\", \"message\": \"Simulated fault injection\"}")
+  additionalDelay     Int         @default(0)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@unique([projectId, method, path])
+  @@index([projectId])
+  @@map("mock_endpoints")
+}
+```
+
+### 10.2 Architectural Rationale for Co-locating Fault Fields
+1. **Zero Runtime Overhead**:
+   - Storing fault rules on `MockEndpoint` ensures the public simulation runtime (`/mock/:projectId/*`) fetches the endpoint and its fault configuration in a single indexed query. No joins or secondary table lookups are needed.
+2. **Atomic Configuration Updates**:
+   - Updates to endpoint paths, status codes, and fault rules are executed within a single SQL `UPDATE` statement, eliminating partial state drift.
+3. **Graceful Defaults & Backward Compatibility**:
+   - Existing endpoints receive `faultEnabled: false`, `failureMode: NONE`, and `additionalDelay: 0`, guaranteeing 100% backward compatibility.
+
+---
+
+## 11. Phase 6: Request History & Analytics Schema
+
+### 11.1 Schema Definition
+```prisma
+model RequestLog {
+  id              String        @id @default(uuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  endpointId      String?
+  endpoint        MockEndpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+  method          String
+  path            String
+  statusCode      Int
+  responseTime    Int           // Milliseconds elapsed
+  requestSize     Int?          // Payload size in bytes
+  responseSize    Int?          // Response payload size in bytes
+  isFaultInjected Boolean       @default(false)
+  wasMatched      Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, statusCode])
+  @@index([projectId, method])
+  @@index([endpointId])
+  @@map("request_logs")
+}
+```
+
+### 11.2 Architectural Rationale & Indexing Decisions
+1. **Referential Integrity & Audit Preservation (`onDelete: SetNull`)**:
+   - When an endpoint is deleted, its historical request logs are preserved with `endpointId: null`. This ensures historical analytics and traffic graphs are not distorted by endpoint lifecycle events.
+   - When a project is deleted, its associated logs cascade (`onDelete: Cascade`) for clean multi-tenant cleanup.
+2. **Optimized Multi-Column Indexes**:
+   - `@@index([projectId, createdAt(sort: Desc)])`: Accelerates paginated log listing ordered newest first and bounded time-range queries (`gte`, `lte`).
+   - `@@index([projectId, statusCode])` & `@@index([projectId, method])`: Enables high-speed filtering and aggregation metrics by HTTP status code and method.
+   - `@@index([endpointId])`: Speeds up endpoint-specific log lookups.
+3. **Non-Blocking Ingestion**:
+   - Database inserts are executed asynchronously after HTTP responses are dispatched, ensuring 0ms latency impact on simulated client requests.
+
+---
+
+## 12. Phase 7: Real API Testing Engine Schema
+
+### 12.1 Schema Definition & Models
+```prisma
+enum AuthType {
+  NONE
+  BEARER
+  BASIC
+  API_KEY
+}
+
+enum TestRunStatus {
+  PASSED
+  FAILED
+  ERROR
+}
+
+model ApiTest {
+  id                   String        @id @default(uuid())
+  projectId            String
+  project              Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                 String
+  method               String
+  url                  String
+  queryParams          Json?         @default("[]")
+  headers              Json?         @default("[]")
+  requestBody          String?
+  authenticationType   AuthType      @default(NONE)
+  authenticationConfig String?       // AES-256-GCM encrypted payload at rest
+  timeoutMs            Int           @default(15000)
+  expectedStatusCode   Int?
+  expectedResponse     Json?         @default("[]")
+  maxResponseTime      Int?
+  runs                 ApiTestRun[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([projectId])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("api_tests")
+}
+
+model ApiTestRun {
+  id                    String        @id @default(uuid())
+  projectId             String
+  project               Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  apiTestId             String?
+  apiTest               ApiTest?      @relation(fields: [apiTestId], references: [id], onDelete: Cascade)
+  status                TestRunStatus
+  actualStatusCode      Int?
+  responseTime          Int           // Milliseconds elapsed
+  responseSize          Int?          // Bytes
+  responseHeaders       Json?         @default("{}")
+  assertionResults      Json?         @default("[]")
+  sanitizedResponseBody String?
+  errorMessage          String?
+  executedAt            DateTime      @default(now())
+
+  @@index([projectId, executedAt(sort: Desc)])
+  @@index([apiTestId, executedAt(sort: Desc)])
+  @@index([status])
+  @@map("api_test_runs")
+}
+```
+
+### 12.2 Architectural Rationale & Indexing Decisions
+1. **Encrypted Credential Storage (`authenticationConfig`)**:
+   - Stored as ciphertext string formatted as `iv:authTag:ciphertext` using server-side AES-256-GCM.
+   - Plaintext credentials and encrypted ciphertext are never returned via public/management APIs or logs.
+2. **Referential Integrity & Cascading Deletions (`onDelete: Cascade`)**:
+   - `Project` deletion cascades to all `ApiTest` records and all historical `ApiTestRun` records.
+   - `ApiTest` deletion cascades to its child `ApiTestRun` execution history.
+   - Unsaved ad-hoc test executions can record `ApiTestRun` with `apiTestId: null` associated directly to the `Project`.
+3. **Compound Indexes for High-Performance Queries**:
+   - `@@index([projectId, createdAt(sort: Desc)])`: Accelerates listing saved tests ordered newest first.
+   - `@@index([apiTestId, executedAt(sort: Desc)])`: Enables paginated execution history lookups per test.
+   - `@@index([status])`: Speeds up filtering test runs by outcome (`PASSED`, `FAILED`, `ERROR`).
+
+

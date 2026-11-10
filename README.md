@@ -2,7 +2,7 @@
 
 FaultLab is a scalable API simulation and failure-testing platform for testing distributed system resiliency and chaos scenarios.
 
-This repository implements **Phase 1: Project Initialization & Foundational Architecture**.
+This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Phase 3A (Workspaces), Phase 3B (Projects), Phase 4 (Mock Endpoint Simulation), Phase 5 (Fault Injection Engine), Phase 6 (Request History & Analytics Engine), and Phase 7 (Real API Testing Engine)**.
 
 ---
 
@@ -10,9 +10,14 @@ This repository implements **Phase 1: Project Initialization & Foundational Arch
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS (`/client`)
 - **Backend**: Node.js, Express, TypeScript (`/server`)
-- **Database**: PostgreSQL with Prisma ORM (`/server/prisma`)
+- **Database**: PostgreSQL (hosted on Neon) with Prisma ORM (`/server/prisma`)
+- **Authentication**: JWT stored in secure HttpOnly cookies, bcryptjs password hashing
+- **Mock Runtime Engine**: Public simulation router (`/mock/:projectId/*`) supporting custom status codes, delays, dynamic route parameters (`:id`), and custom headers
+- **Fault Injection Engine**: Simulates unreliable APIs, configurable error rates, probabilistic failure modes, and latency
+- **Request History & Analytics Engine**: Non-blocking asynchronous request recording, aggregate performance metrics, SVG volume visualization, and filterable history logs
+- **Real API Testing Engine**: Safe outbound HTTP testing against external live APIs, multi-layer SSRF defense, AES-256-GCM credential encryption, deterministic assertion engine (status, latency, nested JSON paths), saved test suites, and execution run history
 - **Configuration**: Zod validation for runtime environment variables
-- **Documentation**: Comprehensive architectural and database guides (`/docs`)
+- **Documentation**: Comprehensive architectural, database, and learning notes guides (`/docs`)
 
 ---
 
@@ -67,6 +72,133 @@ npm run dev:server
 # Terminal 2 - Frontend Client (runs on http://localhost:5173)
 npm run dev:client
 ```
+
+---
+
+## Automated Testing
+
+Run the automated test suites:
+```bash
+# Real API Testing Engine & SSRF Guard tests (32 tests)
+npm run test:api-testing
+
+# Request History & Analytics tests (24 tests)
+npm run test:request
+
+# Fault Injection & Chaos Engine tests (22 tests)
+npm run test:fault
+
+# Mock Endpoint CRUD & Runtime Simulation tests (27 tests)
+npm run test:endpoint
+
+# Project CRUD & multi-tenant isolation tests (22 tests)
+npm run test:project
+
+# Workspace CRUD & multi-tenant isolation tests (25 tests)
+npm run test:workspace
+
+# Authentication & security test suite (15 tests)
+npm run test:auth
+
+# Run all test suites sequentially (167 tests)
+npm run test:all
+```
+
+### Real API Testing Engine Test Coverage (`test:api-testing`)
+- Multi-layer SSRF defense: rejection of loopback `127.0.0.1`, `localhost`, private `10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`
+- Cloud metadata protection: hard blocks on `169.254.169.254` and `metadata.google.internal`
+- Protocol restrictions: blocks non-HTTP schemes (`file:`, `ftp:`, `gopher:`) and malformed URLs
+- Redirect safety: intercepts redirects to prohibited private addresses and blocks them
+- Outbound HTTP execution: GET with query parameters, POST with JSON body and custom headers, PUT, PATCH, DELETE
+- Authentication injection: Bearer token, Basic credentials, and API Key (header & query parameter)
+- Execution resilience: HTTP 500 response handled as status 500 rather than connection failure, 204 No Content empty bodies handled cleanly, plain text responses preserved without JSON parse errors
+- Hard request timeouts: aborts execution when target latency exceeds configured timeout
+- Deterministic assertion validation: expected status match vs mismatch, JSON field `EXISTS`, `NOT_EXISTS`, `EQUALS`, `GREATER_THAN`, `CONTAINS`, latency threshold `maxResponseTime`
+- Saved test lifecycle: creation with AES-256-GCM encrypted credentials, masking of secrets in responses (`hasCredentials: true`), updating and deleting tests
+- Multi-tenant security: anti-IDOR checks (404 for foreign users attempting to read or execute another user's test)
+- Cascading integrity: deleting a test cascades to historical test runs; deleting a project cascades to tests and runs
+- Paginated execution history: retrieving previous test runs with detailed assertion outcomes
+
+
+### Request History & Analytics Test Coverage (`test:request`)
+- Asynchronous non-blocking logging for all mock requests
+- Normal response metrics: exact status code, response time, payload sizes
+- Injected failure tracking: `isFaultInjected: true` and simulated failure status
+- Response latency accurate measurement including simulated delay
+- Unmatched routes logging with 404, `wasMatched: false`, and `endpointId: null`
+- Resilient non-blocking execution (logging failure never crashes or delays client responses)
+- Authenticated paginated listing ordered newest first (`createdAt: 'desc'`)
+- Cross-tenant security: foreign users receive 404 Not Found (anti-IDOR)
+- Multi-parameter filtering: HTTP method, status code, endpoint ID, fault injected, path search
+- Single request detail inspection with endpoint association
+- Aggregate metrics: success rate %, average/min/max response time, status/method breakdown
+- Time-series volume bucketing for 24h, 7d, and 30d windows
+- Referential actions: `onDelete: SetNull` on endpoint deletion, `onDelete: Cascade` on project deletion
+
+
+### Fault Injection Test Coverage (`test:fault`)
+- Input validation: rejects failure rate < 0 or > 100, status < 400 or > 599, additional delay < 0 or > 10000ms
+- Fault creation with `ALWAYS`, `RANDOM`, and `NONE` modes
+- Controlled branching tests for probability failure rates
+- Verification of 0% failure rate (never produces fault) and 100% failure rate (always produces fault)
+- Additional latency injection independently of failure mode
+- Combined normal and additional latency calculations
+- Preserved custom response headers during simulated failures
+- Immediate restoration of normal behavior when `faultEnabled` is toggled off
+- Multi-tenant security: foreign users cannot read or modify another user's fault configuration
+
+
+### Mock Endpoint Test Coverage (`test:endpoint`)
+- Management CRUD operations (`POST`, `GET`, `PATCH`, `DELETE`)
+- Multi-tenant security: cross-tenant access returns HTTP 404 (anti-IDOR)
+- Path normalization: auto-prefixing leading slash, trailing slash removal
+- Duplicate prevention: compound uniqueness `[projectId, method, path]` returns HTTP 409 Conflict
+- Public unauthenticated mock simulation engine (`/mock/:projectId/*`)
+- Dynamic parameter route matching (e.g. `/users/:id` matching `/users/123`)
+- Priority sorting: exact static match preferred over parameterized routes
+- Non-blocking configurable response latency (`responseDelay` up to 10s)
+- Custom response headers and empty 204 No Content payloads
+- Non-matching method rejection (HTTP 404) and unknown path rejection (HTTP 404)
+- Database cascade deletion: deleting a project cascades to all its mock endpoints
+- Clean test teardown via `try/finally` isolating test records
+
+
+### Project Test Coverage (`test:project`)
+- Authentication guard enforcement (401 for unauthenticated calls)
+- Input validation (project name 2-64 chars, description max 500 chars, whitespace handling)
+- Parameter validation (rejection of malformed workspace and project UUIDs with HTTP 400)
+- Foreign workspace injection rejection (404 for creating project in another user's workspace)
+- Multi-tenant project listing isolation (scoped strictly to owned workspace)
+- Anti-IDOR: Non-owner retrieval, update, and deletion attempts receive 404 Not Found
+- Atomic ownership enforcement via relation filters (`updateMany` / `deleteMany`)
+- Clearing descriptions via `null` or empty string
+- Rejection of unexpected body fields (`.strict()`)
+- Workspace cascade deletion (deleting a workspace removes all its projects)
+- Safe teardown via `try/finally` cleaning up only test-created records
+
+### Workspace Test Coverage (`test:workspace`)
+- Authentication guard enforcement (401 for unauthenticated calls)
+- Workspace name validation (2 to 64 characters, non-empty, trimmed)
+- Prevention of client-forged `ownerId`
+- Multi-tenant workspace listing isolation (User A never sees User B's workspaces)
+- Workspace detail retrieval (`GET /:id`)
+- IDOR defense: Non-owner access attempts receive 404 Not Found (concealing existence)
+- Atomic ownership enforcement in database mutations (`updateMany` / `deleteMany`)
+- Workspace renaming (`PATCH /:id`) and payload verification
+- Workspace deletion (`DELETE /:id`) and cascade verification
+- Nonexistent UUIDs and malformed UUID formats (HTTP 400 & 404)
+- Isolated teardown via `try/finally` guaranteeing cleanup of test-only records
+
+### Authentication Test Coverage (`test:auth`)
+- User registration and bcrypt password hashing
+- Validation rules (email format, password complexity)
+- Duplicate email prevention (HTTP 409 Conflict)
+- Generic credential failure messages (anti-enumeration)
+- JWT signing and signature verification
+- HttpOnly cookie setting and clearing
+- Session persistence via `GET /api/v1/auth/me`
+- Guaranteed absence of `passwordHash` in responses
+- Tampered and expired token rejection
 
 ---
 

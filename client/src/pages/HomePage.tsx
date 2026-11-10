@@ -1,11 +1,14 @@
 import React from 'react';
-import { ShieldCheck, Activity, Terminal, ArrowUpRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ShieldCheck, Activity, Terminal, ArrowUpRight, ArrowRight, LayoutDashboard } from 'lucide-react';
 import { useHealthCheck } from '../hooks/useHealthCheck';
+import { useAuth } from '../context/AuthContext';
 import { HealthStatusCard } from '../components/HealthStatusCard';
 import { ProjectPlaceholder } from '../components/ProjectPlaceholder';
 
 export const HomePage: React.FC = () => {
   const health = useHealthCheck(15000);
+  const { isAuthenticated } = useAuth();
 
   return (
     <div className="space-y-8">
@@ -17,7 +20,7 @@ export const HomePage: React.FC = () => {
         <div className="relative max-w-3xl">
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-sky-950/70 border border-sky-800/80 text-sky-400 text-xs font-mono mb-4">
             <Activity className="h-3.5 w-3.5" />
-            <span>Phase 1: Foundations & Architecture Complete</span>
+            <span>Phase 2: Authentication & Authorization Complete</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
@@ -28,10 +31,38 @@ export const HomePage: React.FC = () => {
             Welcome to <strong className="text-white font-semibold">FaultLab</strong>. Engineer resilient distributed applications by simulating complex failure modes, high latency, network timeouts, and HTTP status code anomalies before production deployment.
           </p>
 
-          <div className="mt-6 flex flex-wrap gap-4 text-xs font-mono text-slate-400">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {isAuthenticated ? (
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium shadow-lg shadow-sky-600/20 transition-colors"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                <span>Go to Dashboard</span>
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/register"
+                  className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium shadow-lg shadow-sky-600/20 transition-colors"
+                >
+                  <span>Create Account</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-200 text-sm font-medium border border-slate-750 transition-colors"
+                >
+                  <span>Sign In</span>
+                </Link>
+              </>
+            )}
+          </div>
+
+          <div className="mt-8 flex flex-wrap gap-4 text-xs font-mono text-slate-400">
             <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Modular Monorepo</span>
+              <span>HttpOnly JWT Auth</span>
             </div>
             <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
               <Terminal className="h-4 w-4 text-sky-400" />
@@ -39,7 +70,7 @@ export const HomePage: React.FC = () => {
             </div>
             <div className="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
               <ArrowUpRight className="h-4 w-4 text-indigo-400" />
-              <span>Prisma ORM + PostgreSQL</span>
+              <span>Neon PostgreSQL</span>
             </div>
           </div>
         </div>

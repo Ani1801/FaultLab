@@ -9,23 +9,37 @@
     "build": "rimraf dist && tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test:auth": "tsx src/tests/auth.test.ts",
+    "test:workspace": "tsx src/tests/workspace.test.ts",
+    "test:project": "tsx src/tests/project.test.ts",
+    "test:endpoint": "tsx src/tests/endpoint.test.ts",
+    "test:fault": "tsx src/tests/fault.test.ts",
+    "test:request": "tsx src/tests/requestLog.test.ts",
+    "test:api-testing": "tsx src/tests/apiTesting.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.3.1",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.13.4",
+    "@types/supertest": "^7.2.1",
     "prisma": "^6.3.1",
     "rimraf": "^6.0.1",
+    "supertest": "^7.3.2",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }
 }
-

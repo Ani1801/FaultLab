@@ -12,7 +12,15 @@
     "build:client": "npm --prefix client run build",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "prisma:generate": "npm --prefix server run prisma:generate",
-    "prisma:migrate": "npm --prefix server run prisma:migrate"
+    "prisma:migrate": "npm --prefix server run prisma:migrate",
+    "test:auth": "npm --prefix server run test:auth",
+    "test:workspace": "npm --prefix server run test:workspace",
+    "test:project": "npm --prefix server run test:project",
+    "test:endpoint": "npm --prefix server run test:endpoint",
+    "test:fault": "npm --prefix server run test:fault",
+    "test:request": "npm --prefix server run test:request",
+    "test:api-testing": "npm --prefix server run test:api-testing",
+    "test:all": "npm --prefix server run test:auth && npm --prefix server run test:workspace && npm --prefix server run test:project && npm --prefix server run test:endpoint && npm --prefix server run test:fault && npm --prefix server run test:request && npm --prefix server run test:api-testing"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

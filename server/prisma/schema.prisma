@@ -24,14 +24,155 @@ model User {
 }
 
 model Workspace {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([ownerId])
   @@map("workspaces")
 }
+
+model Project {
+  id          String         @id @default(uuid())
+  name        String
+  description String?
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  endpoints   MockEndpoint[]
+  requestLogs RequestLog[]
+  apiTests    ApiTest[]
+  apiTestRuns ApiTestRun[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([workspaceId])
+  @@map("projects")
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+enum FailureMode {
+  NONE
+  ALWAYS
+  RANDOM
+}
+
+model MockEndpoint {
+  id                  String      @id @default(uuid())
+  projectId           String
+  project             Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                String
+  method              HttpMethod
+  path                String
+  statusCode          Int         @default(200)
+  responseBody        Json?       @default("{}")
+  responseHeaders     Json?
+  responseDelay       Int         @default(0)
+  faultEnabled        Boolean     @default(false)
+  failureMode         FailureMode @default(NONE)
+  failureRate         Int         @default(0)
+  failureStatusCode   Int         @default(500)
+  failureResponseBody Json?       @default("{\"error\": \"Internal Server Error\", \"message\": \"Simulated fault injection\"}")
+  additionalDelay     Int         @default(0)
+  requestLogs         RequestLog[]
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@unique([projectId, method, path])
+  @@index([projectId])
+  @@map("mock_endpoints")
+}
+
+model RequestLog {
+  id              String        @id @default(uuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  endpointId      String?
+  endpoint        MockEndpoint? @relation(fields: [endpointId], references: [id], onDelete: SetNull)
+  method          String
+  path            String
+  statusCode      Int
+  responseTime    Int
+  requestSize     Int?
+  responseSize    Int?
+  isFaultInjected Boolean       @default(false)
+  wasMatched      Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, statusCode])
+  @@index([projectId, method])
+  @@index([endpointId])
+  @@map("request_logs")
+}
+
+enum AuthType {
+  NONE
+  BEARER
+  BASIC
+  API_KEY
+}
+
+enum TestRunStatus {
+  PASSED
+  FAILED
+  ERROR
+}
+
+model ApiTest {
+  id                   String        @id @default(uuid())
+  projectId            String
+  project              Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                 String
+  method               HttpMethod
+  url                  String
+  queryParams          Json?         @default("[]")
+  headers              Json?         @default("[]")
+  requestBody          String?
+  authenticationType   AuthType      @default(NONE)
+  authenticationConfig String?       // AES-256-GCM encrypted JSON string containing secrets
+  timeoutMs            Int           @default(5000)
+  expectedStatusCode   Int?
+  expectedResponse     Json?         @default("[]") // List of JSON path assertions: [{ field, operator, value }]
+  maxResponseTime      Int?          // Latency threshold in ms
+  testRuns             ApiTestRun[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([projectId])
+  @@map("api_tests")
+}
+
+model ApiTestRun {
+  id                    String        @id @default(uuid())
+  projectId             String
+  project               Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  apiTestId             String?
+  apiTest               ApiTest?      @relation(fields: [apiTestId], references: [id], onDelete: Cascade)
+  status                TestRunStatus
+  actualStatusCode      Int?
+  responseTime          Int           // Milliseconds elapsed
+  responseSize          Int?          // In bytes
+  responseHeaders       Json?         // Sanitized response headers
+  assertionResults      Json          @default("[]") // Detailed outcomes: [{ name, expected, actual, passed, message }]
+  sanitizedResponseBody String?       // Truncated / sanitized response body (e.g. max 64KB)
+  errorMessage          String?       // Detailed error if status is ERROR
+  executedAt            DateTime      @default(now())
+
+  @@index([projectId, executedAt(sort: Desc)])
+  @@index([apiTestId, executedAt(sort: Desc)])
+  @@map("api_test_runs")
+}
+
+
 

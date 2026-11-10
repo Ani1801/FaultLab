@@ -1,0 +1,104 @@
+import type {
+  JsonAssertionConfig,
+  AssertionResultItem,
+} from './assertion.engine.js';
+import type { KeyValuePair } from './http.executor.js';
+
+export type AuthType = 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY';
+export type TestRunStatus = 'PASSED' | 'FAILED' | 'ERROR';
+
+export interface AuthenticationConfigInput {
+  token?: string;
+  username?: string;
+  password?: string;
+  key?: string;
+  value?: string;
+  addTo?: 'HEADER' | 'QUERY';
+}
+
+export interface CreateApiTestDTO {
+  name: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url: string;
+  queryParams?: KeyValuePair[];
+  headers?: KeyValuePair[];
+  requestBody?: string | null;
+  authenticationType?: AuthType;
+  authenticationConfig?: AuthenticationConfigInput;
+  timeoutMs?: number;
+  expectedStatusCode?: number | null;
+  expectedResponse?: JsonAssertionConfig[];
+  maxResponseTime?: number | null;
+}
+
+export interface UpdateApiTestDTO {
+  name?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url?: string;
+  queryParams?: KeyValuePair[];
+  headers?: KeyValuePair[];
+  requestBody?: string | null;
+  authenticationType?: AuthType;
+  authenticationConfig?: AuthenticationConfigInput;
+  timeoutMs?: number;
+  expectedStatusCode?: number | null;
+  expectedResponse?: JsonAssertionConfig[];
+  maxResponseTime?: number | null;
+}
+
+export interface ExecuteUnsavedTestDTO {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url: string;
+  queryParams?: KeyValuePair[];
+  headers?: KeyValuePair[];
+  requestBody?: string | null;
+  authenticationType?: AuthType;
+  authenticationConfig?: AuthenticationConfigInput;
+  timeoutMs?: number;
+  expectedStatusCode?: number | null;
+  expectedResponse?: JsonAssertionConfig[];
+  maxResponseTime?: number | null;
+  saveRun?: boolean;
+}
+
+export interface ApiTestResponse {
+  id: string;
+  projectId: string;
+  name: string;
+  method: string;
+  url: string;
+  queryParams: any;
+  headers: any;
+  requestBody: string | null;
+  authenticationType: AuthType;
+  hasCredentials: boolean;
+  timeoutMs: number;
+  expectedStatusCode: number | null;
+  expectedResponse: any;
+  maxResponseTime: number | null;
+  lastRun?: {
+    id: string;
+    status: TestRunStatus;
+    actualStatusCode: number | null;
+    responseTime: number;
+    executedAt: Date;
+  } | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ApiTestRunResponse {
+  id: string;
+  projectId: string;
+  apiTestId: string | null;
+  status: TestRunStatus;
+  actualStatusCode: number | null;
+  responseTime: number;
+  responseSize: number | null;
+  responseHeaders: Record<string, string> | null;
+  assertionResults: AssertionResultItem[];
+  sanitizedResponseBody: string | null;
+  errorMessage: string | null;
+  executedAt: Date;
+}
+
