@@ -469,4 +469,52 @@ model ApiTestRun {
    - `@@index([apiTestId, executedAt(sort: Desc)])`: Enables paginated execution history lookups per test.
    - `@@index([status])`: Speeds up filtering test runs by outcome (`PASSED`, `FAILED`, `ERROR`).
 
+---
+
+## 13. Phase 8: API Diagnostic Engine Schema (`ApiDiagnosticReport`)
+
+Phase 8 introduces the `ApiDiagnosticReport` model to store automated, deterministic diagnostic findings, root-cause analyses, and actionable remediation suggestions for real API test executions.
+
+### 13.1 DiagnosticStatus Enum & ApiDiagnosticReport Model
+
+```prisma
+enum DiagnosticStatus {
+  HEALTHY
+  WARNING
+  CRITICAL_ISSUES
+}
+
+model ApiDiagnosticReport {
+  id            String            @id @default(uuid())
+  projectId     String
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  apiTestRunId  String?           @unique
+  apiTestRun    ApiTestRun?       @relation(fields: [apiTestRunId], references: [id], onDelete: Cascade)
+  overallStatus DiagnosticStatus  @default(HEALTHY)
+  summary       String
+  totalFindings Int               @default(0)
+  findings      Json              @default("[]")
+  createdAt     DateTime          @default(now())
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([overallStatus])
+  @@map("api_diagnostic_reports")
+}
+```
+
+### 13.2 Architectural & Relational Rationale
+1. **One-to-One Execution Association (`apiTestRunId @unique`)**:
+   - Each persisted `ApiTestRun` has at most one corresponding `ApiDiagnosticReport`.
+   - The unique constraint enables atomic `upsert` operations, preventing duplicate report creation if analysis is triggered multiple times for the same run.
+2. **Cascade Deletion Integrity (`onDelete: Cascade`)**:
+   - Deleting a `Project` cascades to delete all its `ApiDiagnosticReport` records.
+   - Deleting an `ApiTestRun` cascades to delete its associated diagnostic report.
+3. **Structured JSON Findings Payload (`findings Json`)**:
+   - The findings field stores an array of typed `DiagnosticFinding` objects (`code`, `category`, `severity`, `title`, `explanation`, `evidence`, `probableCause`, `recommendedActions`, `confidence`).
+   - Using PostgreSQL's native `jsonb` column allows extensible rule additions without schema migrations.
+4. **Performance Indexing**:
+   - `@@index([projectId, createdAt(sort: Desc)])`: Enables fast paginated queries of diagnostic history per project.
+   - `@@index([overallStatus])`: Powers filtered summary counts (`HEALTHY`, `WARNING`, `CRITICAL_ISSUES`).
+
+
 

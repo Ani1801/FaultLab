@@ -20,7 +20,8 @@
     "test:fault": "npm --prefix server run test:fault",
     "test:request": "npm --prefix server run test:request",
     "test:api-testing": "npm --prefix server run test:api-testing",
-    "test:all": "npm --prefix server run test:auth && npm --prefix server run test:workspace && npm --prefix server run test:project && npm --prefix server run test:endpoint && npm --prefix server run test:fault && npm --prefix server run test:request && npm --prefix server run test:api-testing"
+    "test:diagnostic": "npm --prefix server run test:diagnostic",
+    "test:all": "npm --prefix server run test:auth && npm --prefix server run test:workspace && npm --prefix server run test:project && npm --prefix server run test:endpoint && npm --prefix server run test:fault && npm --prefix server run test:request && npm --prefix server run test:api-testing && npm --prefix server run test:diagnostic"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

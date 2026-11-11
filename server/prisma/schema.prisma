@@ -42,11 +42,12 @@ model Project {
   description String?
   workspaceId String
   workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  endpoints   MockEndpoint[]
-  requestLogs RequestLog[]
-  apiTests    ApiTest[]
-  apiTestRuns ApiTestRun[]
-  createdAt   DateTime       @default(now())
+  endpoints         MockEndpoint[]
+  requestLogs       RequestLog[]
+  apiTests          ApiTest[]
+  apiTestRuns       ApiTestRun[]
+  diagnosticReports ApiDiagnosticReport[]
+  createdAt         DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
   @@index([workspaceId])
@@ -167,11 +168,35 @@ model ApiTestRun {
   assertionResults      Json          @default("[]") // Detailed outcomes: [{ name, expected, actual, passed, message }]
   sanitizedResponseBody String?       // Truncated / sanitized response body (e.g. max 64KB)
   errorMessage          String?       // Detailed error if status is ERROR
+  diagnosticReport      ApiDiagnosticReport?
   executedAt            DateTime      @default(now())
 
   @@index([projectId, executedAt(sort: Desc)])
   @@index([apiTestId, executedAt(sort: Desc)])
   @@map("api_test_runs")
+}
+
+enum DiagnosticStatus {
+  HEALTHY
+  WARNING
+  CRITICAL_ISSUES
+}
+
+model ApiDiagnosticReport {
+  id            String            @id @default(uuid())
+  projectId     String
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  apiTestRunId  String?           @unique
+  apiTestRun    ApiTestRun?       @relation(fields: [apiTestRunId], references: [id], onDelete: Cascade)
+  overallStatus DiagnosticStatus  @default(HEALTHY)
+  summary       String
+  totalFindings Int               @default(0)
+  findings      Json              @default("[]")
+  createdAt     DateTime          @default(now())
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([overallStatus])
+  @@map("api_diagnostic_reports")
 }
 
 

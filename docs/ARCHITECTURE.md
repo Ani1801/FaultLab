@@ -414,4 +414,56 @@ Authentication credentials (bearer tokens, basic auth passwords, API keys) store
 | `GET` | `/api/v1/api-tests/:id/runs` | Paginated execution history for a saved test |
 | `GET` | `/api/v1/api-test-runs/:runId` | Detailed inspection of single historical test run |
 
+---
+
+## 13. Phase 8: API Diagnostic Engine
+
+### 13.1 Overview
+The API Diagnostic Engine is a deterministic, rule-based troubleshooting and root-cause analysis system. It evaluates every outbound real API test execution in real time, classifies problems, extracts empirical evidence, determines probable causes, and generates actionable remediation recommendations.
+
+```mermaid
+flowchart TD
+    Run[Real API Execution / Test Run] --> Input[Diagnostic Input Assembly]
+    Input --> Mask[Secret Masking & Sanitization]
+    Mask --> RuleEngine[Deterministic Rule Engine]
+    
+    subgraph Rule Categories
+        RuleEngine --> C1[1. Network / Connection Rules]
+        RuleEngine --> C2[2. HTTP Status Rules]
+        RuleEngine --> C3[3. Authentication Rules]
+        RuleEngine --> C4[4. Response Validation Rules]
+        RuleEngine --> C5[5. Performance Heuristic Rules]
+        RuleEngine --> C6[6. Assertion Outcome Rules]
+        RuleEngine --> C7[7. Request Configuration Rules]
+    end
+
+    C1 & C2 & C3 & C4 & C5 & C6 & C7 --> Dedupe[Code Deduplication & Severity Sorting]
+    Dedupe --> Health[Derive Overall Status: HEALTHY | WARNING | CRITICAL_ISSUES]
+    Health --> Summary[Generate Human-Readable Summary]
+    Summary --> Report[Construct DiagnosticReport]
+
+    Report --> Persist{Persist to DB?}
+    Persist -- Yes: Saved or saveRun=true --> Upsert[Upsert ApiDiagnosticReport]
+    Persist -- No: Ephemeral run --> Inline[Return Inline in Response Payload]
+```
+
+### 13.2 Categorized Diagnostic Rules
+1. **Network & Connection**: Pattern-matches low-level execution errors to distinguish DNS resolution failures (`NET_001`), connection refused (`NET_002`), malformed URLs (`NET_003`), request timeouts (`NET_004`), TLS/SSL certificate problems (`NET_005`), SSRF blocks (`NET_006`), and connection resets (`NET_007`).
+2. **HTTP Status**: Maps standard and failure status codes (400, 401, 403, 404, 405, 408, 409, 422, 429, 500, 502, 503, 504) to detailed operational explanations and provider-level troubleshooting steps.
+3. **Authentication**: Identifies missing credentials vs. invalid/expired tokens, and flags security risks such as transmitting Basic auth credentials over unencrypted HTTP (`AUTH_003`).
+4. **Response Validation**: Identifies serialization mismatches (Content-Type claims JSON but payload is non-JSON or HTML error page) and unexpected empty bodies on success status codes.
+5. **Performance Heuristics**: Compares latency against user-configured thresholds (`PERF_001`) and standard heuristics (>5000ms warning `PERF_002`, >2000ms notice `PERF_003`).
+6. **Assertion Diagnostics**: Translates failed status, latency, and nested JSON body assertions into clear diagnostic findings referencing expected vs. actual values.
+
+### 13.3 Non-Blocking Execution Guarantee
+Diagnostic analysis is executed in a defensive `try / catch` boundary. If rule evaluation fails or encounters an unexpected exception, a fallback diagnostic report is logged and returned without disrupting the core API test execution or throwing an error to the user.
+
+### 13.4 Authenticated Diagnostic Endpoints
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/api-test-runs/:runId/diagnostics` | Retrieve persisted diagnostic report for a specific test run |
+| `GET` | `/api/v1/projects/:projectId/diagnostics` | Paginated project diagnostic history with status filtering |
+| `GET` | `/api/v1/projects/:projectId/diagnostics/summary` | Project-level diagnostic metrics (`total`, `healthy`, `warning`, `criticalIssues`) |
+
+
 

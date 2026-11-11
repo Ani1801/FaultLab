@@ -2,7 +2,7 @@
 
 FaultLab is a scalable API simulation and failure-testing platform for testing distributed system resiliency and chaos scenarios.
 
-This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Phase 3A (Workspaces), Phase 3B (Projects), Phase 4 (Mock Endpoint Simulation), Phase 5 (Fault Injection Engine), Phase 6 (Request History & Analytics Engine), and Phase 7 (Real API Testing Engine)**.
+This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Phase 3A (Workspaces), Phase 3B (Projects), Phase 4 (Mock Endpoint Simulation), Phase 5 (Fault Injection Engine), Phase 6 (Request History & Analytics Engine), Phase 7 (Real API Testing Engine), and Phase 8 (API Diagnostic Engine)**.
 
 ---
 
@@ -16,6 +16,7 @@ This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Ph
 - **Fault Injection Engine**: Simulates unreliable APIs, configurable error rates, probabilistic failure modes, and latency
 - **Request History & Analytics Engine**: Non-blocking asynchronous request recording, aggregate performance metrics, SVG volume visualization, and filterable history logs
 - **Real API Testing Engine**: Safe outbound HTTP testing against external live APIs, multi-layer SSRF defense, AES-256-GCM credential encryption, deterministic assertion engine (status, latency, nested JSON paths), saved test suites, and execution run history
+- **API Diagnostic Engine**: Deterministic rule-based automated troubleshooting system that analyzes real API test results, categorizes root causes into 7 domains (HTTP Status, Authentication, Request Config, Response, Network/Connection, Performance, Assertion), calculates overall diagnostic health, and provides actionable debugging recommendations with evidence
 - **Configuration**: Zod validation for runtime environment variables
 - **Documentation**: Comprehensive architectural, database, and learning notes guides (`/docs`)
 
@@ -79,6 +80,9 @@ npm run dev:client
 
 Run the automated test suites:
 ```bash
+# API Diagnostic Engine tests (41 tests)
+npm run test:diagnostic
+
 # Real API Testing Engine & SSRF Guard tests (32 tests)
 npm run test:api-testing
 
@@ -100,9 +104,25 @@ npm run test:workspace
 # Authentication & security test suite (15 tests)
 npm run test:auth
 
-# Run all test suites sequentially (167 tests)
+# Run all test suites sequentially (208 tests)
 npm run test:all
 ```
+
+### API Diagnostic Engine Test Coverage (`test:diagnostic`)
+- Deterministic rule categorization across 7 key architectural domains:
+  - **Network & Connection**: DNS failure (`NET_001`), connection refused (`NET_002`), malformed URL (`NET_003`), request timeout (`NET_004`), TLS/SSL handshake (`NET_005`), SSRF block (`NET_006`), connection reset (`NET_007`), unclassified network error (`NET_008`)
+  - **HTTP Status**: Bad Request (`HTTP_400`), Forbidden (`AUTH_002`), Not Found (`HTTP_404`), Method Not Allowed (`REQ_001`), Conflict (`HTTP_409`), Unprocessable Entity (`HTTP_422`, `REQ_002`), Rate Limit (`HTTP_429`), Internal Server Error (`HTTP_500`), Bad Gateway (`HTTP_502`), Service Unavailable (`HTTP_503`), Gateway Timeout (`HTTP_504`)
+  - **Authentication**: Missing credentials on 401 (`AUTH_001_MISSING`), invalid credentials on 401 (`AUTH_001_INVALID`), unencrypted Basic auth over HTTP (`AUTH_003`)
+  - **Response Validation**: Content-Type claims JSON but payload is malformed (`RESP_001`), empty body on success code (`RESP_002`)
+  - **Performance Heuristics**: User-configured latency threshold exceeded (`PERF_001`), high latency >5000ms warning (`PERF_002`), moderate latency >2000ms observation (`PERF_003`)
+  - **Assertion Diagnostics**: Dynamic translation of failed status, latency, and nested JSON body assertions into contextual findings
+- Severity sorting (`CRITICAL` > `HIGH` > `MEDIUM` > `LOW` > `INFO`) and overall status derivation (`HEALTHY`, `WARNING`, `CRITICAL_ISSUES`)
+- Non-blocking execution safety: diagnostic generation failure never crashes API test execution
+- Persistence lifecycle: automatic upserting to `ApiDiagnosticReport` on test execution
+- Ephemeral execution handling: unsaved test runs (`saveRun: false`) receive inline diagnostics without database persistence; `saveRun: true` persists report
+- REST API verification: `GET /api-test-runs/:runId/diagnostics`, `GET /projects/:projectId/diagnostics` (with pagination and status filtering), and `GET /projects/:projectId/diagnostics/summary`
+- Anti-IDOR security: strict tenant isolation across project and workspace hierarchy (404 for unauthorized cross-tenant requests)
+- Database integrity: cascade deletion of `ApiDiagnosticReport` records when project is deleted
 
 ### Real API Testing Engine Test Coverage (`test:api-testing`)
 - Multi-layer SSRF defense: rejection of loopback `127.0.0.1`, `localhost`, private `10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`

@@ -34,6 +34,7 @@ import { ResponseViewer } from '../components/api-testing/ResponseViewer';
 import { SavedTestsList } from '../components/api-testing/SavedTestsList';
 import { TestRunHistoryModal } from '../components/api-testing/TestRunHistoryModal';
 import { SaveTestModal } from '../components/api-testing/SaveTestModal';
+import { DiagnosticOverviewModal } from '../components/api-testing/DiagnosticOverviewModal';
 import {
   Plus,
   RefreshCw,
@@ -50,6 +51,7 @@ import {
   Activity,
   Layers,
   FlaskConical,
+  ShieldAlert,
 } from 'lucide-react';
 
 type TabType = 'endpoints' | 'analytics' | 'api-testing';
@@ -146,6 +148,7 @@ export const ProjectDetailsPage: React.FC = () => {
   // API Testing Modals
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [historyModalTest, setHistoryModalTest] = useState<ApiTest | null>(null);
+  const [isDiagnosticsOverviewOpen, setIsDiagnosticsOverviewOpen] = useState(false);
 
   const mockBaseUrl = useMemo(() => {
     if (!projectId) return '';
@@ -787,54 +790,72 @@ export const ProjectDetailsPage: React.FC = () => {
 
       {/* TAB 3: REAL API TESTING CONTENT */}
       {activeTab === 'api-testing' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Saved Tests List */}
-          <div className="lg:col-span-4 xl:col-span-3">
-            <SavedTestsList
-              tests={apiTests}
-              activeTestId={selectedApiTest?.id || null}
-              onSelectTest={handleSelectApiTest}
-              onRunTest={handleRunSavedTest}
-              onViewHistory={(test) => setHistoryModalTest(test)}
-              onDeleteTest={handleDeleteApiTest}
-              onNewTest={handleNewApiTest}
-              runningTestId={runningTestId}
-              isLoading={isApiTestsLoading}
-            />
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="font-semibold text-slate-200">Real API Testing Engine</span>
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden sm:inline">Execute real requests with automated validation and diagnostic analysis</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsDiagnosticsOverviewOpen(true)}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 transition"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Diagnostics Overview</span>
+            </button>
           </div>
 
-          {/* Right Column: Request Builder & Response Viewer */}
-          <div className="lg:col-span-8 xl:col-span-9 space-y-6">
-            <RequestBuilder
-              method={builderMethod}
-              setMethod={setBuilderMethod}
-              url={builderUrl}
-              setUrl={setBuilderUrl}
-              queryParams={builderQueryParams}
-              setQueryParams={setBuilderQueryParams}
-              headers={builderHeaders}
-              setHeaders={setBuilderHeaders}
-              authType={builderAuthType}
-              setAuthType={setBuilderAuthType}
-              authConfig={builderAuthConfig}
-              setAuthConfig={setBuilderAuthConfig}
-              hasStoredCredentials={selectedApiTest?.hasCredentials}
-              requestBody={builderRequestBody}
-              setRequestBody={setBuilderRequestBody}
-              expectedStatusCode={builderExpectedStatusCode}
-              setExpectedStatusCode={setBuilderExpectedStatusCode}
-              maxResponseTime={builderMaxResponseTime}
-              setMaxResponseTime={setBuilderMaxResponseTime}
-              assertions={builderAssertions}
-              setAssertions={setBuilderAssertions}
-              onSend={handleSendRequest}
-              onSave={handleSaveTestClick}
-              isSending={isSending}
-              isSaving={isSaving}
-              activeTestName={selectedApiTest?.name}
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Saved Tests List */}
+            <div className="lg:col-span-4 xl:col-span-3">
+              <SavedTestsList
+                tests={apiTests}
+                activeTestId={selectedApiTest?.id || null}
+                onSelectTest={handleSelectApiTest}
+                onRunTest={handleRunSavedTest}
+                onViewHistory={(test) => setHistoryModalTest(test)}
+                onDeleteTest={handleDeleteApiTest}
+                onNewTest={handleNewApiTest}
+                runningTestId={runningTestId}
+                isLoading={isApiTestsLoading}
+              />
+            </div>
 
-            <ResponseViewer run={currentRun} isLoading={isSending} />
+            {/* Right Column: Request Builder & Response Viewer */}
+            <div className="lg:col-span-8 xl:col-span-9 space-y-6">
+              <RequestBuilder
+                method={builderMethod}
+                setMethod={setBuilderMethod}
+                url={builderUrl}
+                setUrl={setBuilderUrl}
+                queryParams={builderQueryParams}
+                setQueryParams={setBuilderQueryParams}
+                headers={builderHeaders}
+                setHeaders={setBuilderHeaders}
+                authType={builderAuthType}
+                setAuthType={setBuilderAuthType}
+                authConfig={builderAuthConfig}
+                setAuthConfig={setBuilderAuthConfig}
+                hasStoredCredentials={selectedApiTest?.hasCredentials}
+                requestBody={builderRequestBody}
+                setRequestBody={setBuilderRequestBody}
+                expectedStatusCode={builderExpectedStatusCode}
+                setExpectedStatusCode={setBuilderExpectedStatusCode}
+                maxResponseTime={builderMaxResponseTime}
+                setMaxResponseTime={setBuilderMaxResponseTime}
+                assertions={builderAssertions}
+                setAssertions={setBuilderAssertions}
+                onSend={handleSendRequest}
+                onSave={handleSaveTestClick}
+                isSending={isSending}
+                isSaving={isSaving}
+                activeTestName={selectedApiTest?.name}
+              />
+
+              <ResponseViewer run={currentRun} isLoading={isSending} diagnosticReport={currentRun?.diagnosticReport} />
+            </div>
           </div>
         </div>
       )}
@@ -873,6 +894,14 @@ export const ProjectDetailsPage: React.FC = () => {
         <TestRunHistoryModal
           test={historyModalTest}
           onClose={() => setHistoryModalTest(null)}
+        />
+      )}
+
+      {isDiagnosticsOverviewOpen && project && (
+        <DiagnosticOverviewModal
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setIsDiagnosticsOverviewOpen(false)}
         />
       )}
     </div>

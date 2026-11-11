@@ -16,7 +16,8 @@
     "test:endpoint": "tsx src/tests/endpoint.test.ts",
     "test:fault": "tsx src/tests/fault.test.ts",
     "test:request": "tsx src/tests/requestLog.test.ts",
-    "test:api-testing": "tsx src/tests/apiTesting.test.ts"
+    "test:api-testing": "tsx src/tests/apiTesting.test.ts",
+    "test:diagnostic": "tsx src/tests/diagnostic.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.3.1",

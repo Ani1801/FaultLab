@@ -80,6 +80,8 @@ export interface ApiTestRun {
   sanitizedResponseBody: string | null;
   errorMessage: string | null;
   executedAt: string;
+  /** Diagnostic report from Phase 8 engine — present for persisted and ephemeral runs */
+  diagnosticReport?: import('./diagnostic').DiagnosticReport | null;
 }
 
 export interface CreateApiTestInput {

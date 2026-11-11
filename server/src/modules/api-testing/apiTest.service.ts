@@ -2,6 +2,7 @@ import { prisma } from '../../utils/prisma.js';
 import { encryptCredentials, decryptCredentials } from './crypto.utils.js';
 import { executeRealHttpRequest, type AuthExecutionConfig } from './http.executor.js';
 import { evaluateTestAssertions } from './assertion.engine.js';
+import { diagnosticService } from '../diagnostics/diagnostic.service.js';
 import type {
   CreateApiTestDTO,
   UpdateApiTestDTO,
@@ -52,7 +53,7 @@ export class ApiTestService {
   /**
    * Helper to format an ApiTestRun Prisma record.
    */
-  private formatApiTestRunResponse(run: any): ApiTestRunResponse {
+  private formatApiTestRunResponse(run: any, diagnosticReport?: any): ApiTestRunResponse {
     return {
       id: run.id,
       projectId: run.projectId,
@@ -66,6 +67,7 @@ export class ApiTestService {
       sanitizedResponseBody: run.sanitizedResponseBody,
       errorMessage: run.errorMessage,
       executedAt: run.executedAt,
+      diagnosticReport: diagnosticReport ?? undefined,
     };
   }
 
@@ -351,9 +353,30 @@ export class ApiTestService {
       },
     });
 
+    // Generate and persist diagnostic report (non-blocking — failure must NOT crash execution)
+    const diagnosticReport = await diagnosticService.generateAndPersistDiagnostic({
+      apiTestRunId: run.id,
+      projectId: test.projectId,
+      input: {
+        method: test.method,
+        url: test.url,
+        authenticationType: test.authenticationType,
+        isExecutionError: execution.isExecutionError,
+        statusCode: execution.statusCode,
+        responseTime: execution.responseTime,
+        responseHeaders: execution.responseHeaders,
+        sanitizedResponseBody: execution.rawBody.slice(0, 65536),
+        errorMessage: execution.errorMessage || null,
+        assertionResults: evaluation.assertionResults,
+        maxResponseTime: test.maxResponseTime ?? null,
+        expectedStatusCode: test.expectedStatusCode ?? null,
+        timeoutMs: test.timeoutMs,
+      },
+    });
+
     return {
       test: this.formatApiTestResponse(test, run),
-      run: this.formatApiTestRunResponse(run),
+      run: this.formatApiTestRunResponse(run, diagnosticReport),
     };
   }
 
@@ -433,10 +456,47 @@ export class ApiTestService {
         },
       });
 
-      return this.formatApiTestRunResponse(run);
+      // Generate and persist diagnostic report (non-blocking)
+      const diagnosticReport = await diagnosticService.generateAndPersistDiagnostic({
+        apiTestRunId: run.id,
+        projectId,
+        input: {
+          method: data.method,
+          url: data.url,
+          authenticationType: data.authenticationType || 'NONE',
+          isExecutionError: execution.isExecutionError,
+          statusCode: execution.statusCode,
+          responseTime: execution.responseTime,
+          responseHeaders: execution.responseHeaders,
+          sanitizedResponseBody: execution.rawBody.slice(0, 65536),
+          errorMessage: execution.errorMessage || null,
+          assertionResults: evaluation.assertionResults,
+          maxResponseTime: data.maxResponseTime ?? null,
+          expectedStatusCode: data.expectedStatusCode ?? null,
+          timeoutMs: data.timeoutMs || 5000,
+        },
+      });
+
+      return this.formatApiTestRunResponse(run, diagnosticReport);
     }
 
-    // Return ephemeral execution result
+    // Return ephemeral execution result with inline diagnostic (not persisted)
+    const diagnosticReport = diagnosticService.generateEphemeralDiagnostic({
+      method: data.method,
+      url: data.url,
+      authenticationType: data.authenticationType || 'NONE',
+      isExecutionError: execution.isExecutionError,
+      statusCode: execution.statusCode,
+      responseTime: execution.responseTime,
+      responseHeaders: execution.responseHeaders,
+      sanitizedResponseBody: execution.rawBody.slice(0, 65536),
+      errorMessage: execution.errorMessage || null,
+      assertionResults: evaluation.assertionResults,
+      maxResponseTime: data.maxResponseTime ?? null,
+      expectedStatusCode: data.expectedStatusCode ?? null,
+      timeoutMs: data.timeoutMs || 5000,
+    });
+
     return {
       id: 'ephemeral-run',
       projectId,
@@ -450,6 +510,7 @@ export class ApiTestService {
       sanitizedResponseBody: execution.rawBody.slice(0, 65536),
       errorMessage: execution.errorMessage || null,
       executedAt: new Date(),
+      diagnosticReport,
     };
   }
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import type { ApiTestRun } from '../../types/apiTesting';
+import type { DiagnosticReport } from '../../types/diagnostic';
+import { DiagnosticFindingsPanel } from './DiagnosticFindingsPanel';
 import {
   CheckCircle,
   XCircle,
@@ -11,15 +13,17 @@ import {
   CheckCircle2,
   Clock,
   HardDrive,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface ResponseViewerProps {
   run: ApiTestRun | null;
   isLoading?: boolean;
+  diagnosticReport?: DiagnosticReport | null;
 }
 
-export const ResponseViewer: React.FC<ResponseViewerProps> = ({ run, isLoading }) => {
-  const [activeTab, setActiveTab] = useState<'body' | 'assertions' | 'headers'>('body');
+export const ResponseViewer: React.FC<ResponseViewerProps> = ({ run, isLoading, diagnosticReport }) => {
+  const [activeTab, setActiveTab] = useState<'body' | 'assertions' | 'headers' | 'diagnostics'>('body');
   const [copied, setCopied] = useState(false);
 
   if (isLoading) {
@@ -67,6 +71,11 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({ run, isLoading }
 
   const passedCount = run.assertionResults.filter((a) => a.passed).length;
   const totalAssertions = run.assertionResults.length;
+
+  // Use prop if available, otherwise fall back to run.diagnosticReport
+  const effectiveDiagnosticReport = diagnosticReport ?? run.diagnosticReport ?? null;
+  const diagnosticFindingCount = effectiveDiagnosticReport?.totalFindings ?? 0;
+  const diagnosticStatus = effectiveDiagnosticReport?.overallStatus;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
@@ -187,6 +196,32 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({ run, isLoading }
             <Layers className="w-3.5 h-3.5" />
             <span>Headers</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('diagnostics')}
+            className={`pb-2 flex items-center gap-1.5 border-b-2 transition ${
+              activeTab === 'diagnostics'
+                ? 'border-indigo-500 text-white font-semibold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span>Diagnostics</span>
+            {diagnosticFindingCount > 0 && (
+              <span
+                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full font-mono ${
+                  diagnosticStatus === 'CRITICAL_ISSUES'
+                    ? 'bg-rose-500/80 text-white'
+                    : diagnosticStatus === 'WARNING'
+                    ? 'bg-amber-500/80 text-white'
+                    : 'bg-slate-600 text-slate-200'
+                }`}
+              >
+                {diagnosticFindingCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {activeTab === 'body' && run.sanitizedResponseBody && (
@@ -290,6 +325,13 @@ export const ResponseViewer: React.FC<ResponseViewerProps> = ({ run, isLoading }
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {/* Tab 4: Diagnostics */}
+      {activeTab === 'diagnostics' && (
+        <div className="pt-1">
+          <DiagnosticFindingsPanel diagnosticReport={effectiveDiagnosticReport} />
         </div>
       )}
     </div>

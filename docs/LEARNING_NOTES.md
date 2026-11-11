@@ -119,11 +119,24 @@ Phase 1 focuses exclusively on establishing a rock-solid foundation for FaultLab
 - **Decision**: Encrypt all sensitive API authentication tokens, passwords, and API keys with AES-256-GCM before writing to PostgreSQL, returning only `hasCredentials: boolean` to clients.
 - **Rationale**: Credentials stored in plaintext risk exposure through database dumps, rogue log lines, or accidental client responses. Server-side encryption ensures confidentiality, and masking in responses guarantees credentials never leak in the browser.
 
+### 2.28 Deterministic Rule-Based Engine vs. Black-Box AI Models
+- **Decision**: Build the API Diagnostic Engine as an explicit, deterministic rule evaluation pipeline across 7 distinct categories rather than relying on an external AI or LLM API.
+- **Rationale**: Deterministic rules are instantaneous, reproducible, free of token costs, fully auditable, and cannot hallucinate causes or inaccurate debugging advice. They ground findings directly in empirical evidence (status codes, headers, latency measurements, assertion diffs) with zero external network dependencies.
+
+### 2.29 Non-Blocking Diagnostic Execution & Defensive Boundaries
+- **Decision**: Wrap diagnostic generation and database persistence in defensive try/catch blocks within the core API testing pipeline, returning a safe fallback diagnostic report on error.
+- **Rationale**: The diagnostic engine is an observational and analytical feature. A diagnostic classification error or database persistence hiccup must never cause an actual HTTP request test to fail, abort, or return an unhandled 500 error to the developer.
+
+### 2.30 Idempotent Atomic Upserting for Diagnostic Reports
+- **Decision**: Enforce a `@unique` constraint on `apiTestRunId` in `ApiDiagnosticReport` and use Prisma's `upsert` operation during persistence.
+- **Rationale**: Prevents accidental generation of duplicate reports if a run is re-evaluated or referenced multiple times, maintaining a strict 1-to-1 relationship between an execution run and its diagnostic insights.
+
 ---
 
 ## 3. Strict Boundary Adherence
 
-In accordance with Phase 1 through Phase 7 constraints:
+In accordance with Phase 1 through Phase 8 constraints:
+- **No External LLM / AI Dependencies**: Rule evaluation is entirely deterministic, fast, and local.
 - **No Redis / Queues / Socket.IO / WebSockets**: Synchronous execution with client polling and responsive React UI provides real-time testing capabilities without distributed complexity.
 - **No Docker**: The development setup runs natively on Node.js and Neon PostgreSQL instances.
 - **Zero Sensitive Data Storage**: Credentials are encrypted at rest with AES-256-GCM and never returned in plaintext. Outbound response bodies are capped at 2MB to protect server memory.
@@ -140,7 +153,8 @@ In accordance with Phase 1 through Phase 7 constraints:
 - [x] Phase 5: Fault Injection Rules & Chaos Simulation
 - [x] Phase 6: Request History & Analytics Engine
 - [x] Phase 7: Real API Testing Engine (SSRF Guard, Assertions, Encrypted Auth, Test Runs)
-- [ ] Phase 8: Team Collaboration & Workspace Permissions
+- [x] Phase 8: API Diagnostic Engine (Deterministic Rules, Root Cause Analysis, Diagnostics History)
+- [ ] Phase 9: Team Collaboration & Workspace Permissions
 
 
 

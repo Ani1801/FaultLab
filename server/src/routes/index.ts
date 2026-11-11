@@ -19,6 +19,10 @@ import {
   apiTestRouter,
   apiTestRunRouter,
 } from '../modules/api-testing/apiTest.routes.js';
+import {
+  diagnosticRunRouter,
+  projectDiagnosticsRouter,
+} from '../modules/diagnostics/diagnostic.routes.js';
 
 export const apiRouter = Router();
 
@@ -31,10 +35,12 @@ apiRouter.use('/projects/:projectId/endpoints', projectEndpointsRouter);
 apiRouter.use('/projects/:projectId/requests', projectRequestsRouter);
 apiRouter.use('/projects/:projectId/analytics', projectAnalyticsRouter);
 apiRouter.use('/projects/:projectId/api-tests', projectApiTestsRouter);
+apiRouter.use('/projects/:projectId/diagnostics', projectDiagnosticsRouter);
 apiRouter.use('/projects', projectRouter);
 apiRouter.use('/endpoints', endpointRouter);
 apiRouter.use('/api-tests', apiTestRouter);
 apiRouter.use('/api-test-runs', apiTestRunRouter);
+apiRouter.use('/api-test-runs/:runId/diagnostics', diagnosticRunRouter);
 
 
 
