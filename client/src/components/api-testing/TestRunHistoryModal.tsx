@@ -43,7 +43,7 @@ export const TestRunHistoryModal: React.FC<TestRunHistoryModalProps> = ({
       setRuns(res.runs);
       if (res.pagination) {
         setTotalPages(res.pagination.totalPages || 1);
-        setTotalCount(res.pagination.total || res.runs.length);
+        setTotalCount(res.pagination.totalCount ?? res.pagination.total ?? res.runs.length);
       }
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to load test runs.');

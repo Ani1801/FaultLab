@@ -465,5 +465,21 @@ Diagnostic analysis is executed in a defensive `try / catch` boundary. If rule e
 | `GET` | `/api/v1/projects/:projectId/diagnostics` | Paginated project diagnostic history with status filtering |
 | `GET` | `/api/v1/projects/:projectId/diagnostics/summary` | Project-level diagnostic metrics (`total`, `healthy`, `warning`, `criticalIssues`) |
 
+---
+
+## 14. Phase 9: Local Diagnostic Agent Architecture
+
+### 14.1 Overview
+The Local Diagnostic Agent (`@faultlab/agent`) enables FaultLab to test private APIs running on a developer's machine (`localhost:PORT` or `127.0.0.1:PORT`) through an outbound-only polling mechanism with zero inbound ports.
+
+### 14.2 System Components
+1. **Agent Pairing Handshake**: Project owners initiate a pairing session in the UI, generating a short-lived, single-use pairing code (`FLAB-XXXX-YYYY`, TTL: 10m). Only the SHA-256 hash of the code is stored in the database (`AgentPairingSession`).
+2. **Revocable Agent Credentials**: Upon CLI code exchange (`faultlab-agent connect`), the server generates a cryptographically secure token (`fla_<64-hex>`). Only its SHA-256 hash is stored (`LocalAgent.tokenHash`). Agents can be revoked instantly from the project dashboard.
+3. **Outbound Polling Loop**: The local CLI initiates long-polling requests (`GET /api/v1/agent/tasks`) with its bearer token. No incoming network ports are opened on the developer machine.
+4. **Target Origin Enforcement**: The agent strictly verifies that every execution task matches the `approvedOrigin` assigned during pairing, neutralizing SSRF, cross-port probing, and internal network scans.
+5. **Secret Redaction**: Sensitive headers (`Authorization`, `Cookie`, `X-Api-Key`), query credentials, and nested JSON fields (`password`, `secret`, `token`, `key`) are sanitized before results leave the developer's machine.
+6. **Unified Evaluation**: Submitted results pass through Phase 7 assertion evaluation (`assertion.engine.ts`) and Phase 8 diagnostic analysis (`diagnostic.engine.ts`), creating an `ApiTestRun` and `ApiDiagnosticReport` identically to cloud executions.
+
+
 
 

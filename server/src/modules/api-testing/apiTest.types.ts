@@ -48,6 +48,7 @@ export interface UpdateApiTestDTO {
 }
 
 export interface ExecuteUnsavedTestDTO {
+  apiTestId?: string | null;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
   queryParams?: KeyValuePair[];

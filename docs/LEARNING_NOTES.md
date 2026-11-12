@@ -131,15 +131,32 @@ Phase 1 focuses exclusively on establishing a rock-solid foundation for FaultLab
 - **Decision**: Enforce a `@unique` constraint on `apiTestRunId` in `ApiDiagnosticReport` and use Prisma's `upsert` operation during persistence.
 - **Rationale**: Prevents accidental generation of duplicate reports if a run is re-evaluated or referenced multiple times, maintaining a strict 1-to-1 relationship between an execution run and its diagnostic insights.
 
+### 2.31 Outbound-Only Agent Polling vs. Inbound Webhooks / Tunnels (ngrok)
+- **Decision**: Local diagnostic execution uses outbound-only HTTP polling (`GET /api/v1/agent/tasks`) without opening any inbound ports or relying on third-party reverse tunnels (ngrok, localtunnel).
+- **Rationale**: Opening inbound ports on developer machines creates severe security vulnerabilities, corporate firewall violations, and NAT traversal headaches. Outbound polling guarantees zero open ports, requires no root/admin privileges, and functions transparently behind corporate proxies.
+
+### 2.32 Single-Use Pairing Handshake with SHA-256 Hashed Tokens
+- **Decision**: Pairing codes (`FLAB-XXXX-YYYY`) expire in 10 minutes, can only be used once, and neither the pairing code nor the agent token is stored in plaintext in the database (only SHA-256 hashes).
+- **Rationale**: Follows strict zero-trust credential hygiene. A compromised database dump will never expose usable agent tokens or active pairing codes.
+
+### 2.33 Strict Target Origin Validation to Prevent SSRF & Internal Network Scans
+- **Decision**: The local agent enforces strict origin boundaries against the session's `approvedOrigin` before dispatching any request, normalizing `localhost` and `127.0.0.1` while blocking non-approved ports, LAN ranges, and cloud metadata IPs (`169.254.169.254`).
+- **Rationale**: Prevents a compromised cloud backend from using the local agent as an SSRF proxy to scan the developer's internal home or corporate network.
+
+### 2.34 Client-Side Evidence Redaction (Defense-in-Depth)
+- **Decision**: The local agent scrubs sensitive request and response headers (`Authorization`, `Cookie`, `X-Api-Key`), query credentials, and recursively redacts sensitive JSON fields (`password`, `secret`, `token`, `key`) before sending execution evidence to the cloud.
+- **Rationale**: Local microservice test data may contain real developer credentials, test API tokens, or secrets. Redacting evidence at the source ensures private local secrets never traverse the network or persist in cloud databases.
+
 ---
 
 ## 3. Strict Boundary Adherence
 
-In accordance with Phase 1 through Phase 8 constraints:
+In accordance with Phase 1 through Phase 9 constraints:
 - **No External LLM / AI Dependencies**: Rule evaluation is entirely deterministic, fast, and local.
 - **No Redis / Queues / Socket.IO / WebSockets**: Synchronous execution with client polling and responsive React UI provides real-time testing capabilities without distributed complexity.
 - **No Docker**: The development setup runs natively on Node.js and Neon PostgreSQL instances.
 - **Zero Sensitive Data Storage**: Credentials are encrypted at rest with AES-256-GCM and never returned in plaintext. Outbound response bodies are capped at 2MB to protect server memory.
+- **Zero Inbound Ports on Developer Host**: Outbound polling ensures the agent never opens listening ports.
 
 ---
 
@@ -154,7 +171,8 @@ In accordance with Phase 1 through Phase 8 constraints:
 - [x] Phase 6: Request History & Analytics Engine
 - [x] Phase 7: Real API Testing Engine (SSRF Guard, Assertions, Encrypted Auth, Test Runs)
 - [x] Phase 8: API Diagnostic Engine (Deterministic Rules, Root Cause Analysis, Diagnostics History)
-- [ ] Phase 9: Team Collaboration & Workspace Permissions
+- [x] Phase 9: Local Diagnostic Agent (Outbound Polling, Pairing Handshake, Origin Guard, Redaction, CLI Package)
+- [ ] Phase 10: Team Collaboration & Workspace Permissions
 
 
 

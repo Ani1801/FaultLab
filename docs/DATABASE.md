@@ -516,5 +516,92 @@ model ApiDiagnosticReport {
    - `@@index([projectId, createdAt(sort: Desc)])`: Enables fast paginated queries of diagnostic history per project.
    - `@@index([overallStatus])`: Powers filtered summary counts (`HEALTHY`, `WARNING`, `CRITICAL_ISSUES`).
 
+---
+
+## 14. Phase 9: Local Diagnostic Agent Schema
+
+Phase 9 introduces models to manage local diagnostic agent pairing, revocable authentication, and background task queuing.
+
+### 14.1 Enums & Models
+
+```prisma
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  REVOKED
+}
+
+enum AgentTaskStatus {
+  PENDING
+  PICKED_UP
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+model LocalAgent {
+  id             String       @id @default(uuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  tokenHash      String       @unique
+  approvedOrigin String
+  status         AgentStatus  @default(ONLINE)
+  lastSeenAt     DateTime?
+  systemInfo     Json?        @default("{}")
+  tasks          AgentTask[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+  @@map("local_agents")
+}
+
+model AgentPairingSession {
+  id             String    @id @default(uuid())
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  codeHash       String    @unique
+  approvedOrigin String
+  agentName      String?
+  isUsed         Boolean   @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  usedAt         DateTime?
+
+  @@index([projectId])
+  @@map("agent_pairing_sessions")
+}
+
+model AgentTask {
+  id           String          @id @default(uuid())
+  agentId      String
+  agent        LocalAgent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type         String          @default("EXECUTE_API_TEST")
+  status       AgentTaskStatus @default(PENDING)
+  payload      Json
+  result       Json?
+  apiTestRunId String?
+  apiTestRun   ApiTestRun?     @relation(fields: [apiTestRunId], references: [id], onDelete: SetNull)
+  expiresAt    DateTime
+  pickedUpAt   DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime        @default(now())
+
+  @@index([agentId, status])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("agent_tasks")
+}
+```
+
+### 14.2 Security & Operational Design
+1. **Hashed Credential Storage**: Neither the pairing code nor the agent token is stored in plaintext. `codeHash` and `tokenHash` store deterministic SHA-256 hashes.
+2. **Cascade Isolation**: Deleting a project cascades and removes all associated `LocalAgent`, `AgentPairingSession`, and `AgentTask` records.
+3. **Queue Polling Indexes**: `@@index([agentId, status])` enables O(1) polling lookup for `PENDING` tasks assigned to a specific agent.
+
+
 
 

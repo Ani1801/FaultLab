@@ -72,6 +72,7 @@ export const updateApiTestSchema = z.object({
 });
 
 export const executeUnsavedTestSchema = z.object({
+  apiTestId: z.string().uuid().nullable().optional(),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
   url: z.string().trim().min(1, 'Target API URL is required'),
   queryParams: z.array(keyValuePairSchema).optional().default([]),

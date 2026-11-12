@@ -35,6 +35,10 @@ import { SavedTestsList } from '../components/api-testing/SavedTestsList';
 import { TestRunHistoryModal } from '../components/api-testing/TestRunHistoryModal';
 import { SaveTestModal } from '../components/api-testing/SaveTestModal';
 import { DiagnosticOverviewModal } from '../components/api-testing/DiagnosticOverviewModal';
+import { agentService } from '../services/agentService';
+import type { LocalAgent } from '../types/agent';
+import { AgentPairingModal } from '../components/agents/AgentPairingModal';
+import { AgentStatusCard } from '../components/agents/AgentStatusCard';
 import {
   Plus,
   RefreshCw,
@@ -150,6 +154,12 @@ export const ProjectDetailsPage: React.FC = () => {
   const [historyModalTest, setHistoryModalTest] = useState<ApiTest | null>(null);
   const [isDiagnosticsOverviewOpen, setIsDiagnosticsOverviewOpen] = useState(false);
 
+  // Local Diagnostic Agent State
+  const [agents, setAgents] = useState<LocalAgent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [isPairModalOpen, setIsPairModalOpen] = useState(false);
+  const [isRevokingAgent, setIsRevokingAgent] = useState(false);
+
   const mockBaseUrl = useMemo(() => {
     if (!projectId) return '';
     const protocol = window.location.protocol;
@@ -229,10 +239,37 @@ export const ProjectDetailsPage: React.FC = () => {
     }
   }, [projectId]);
 
+  const loadAgents = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const list = await agentService.listAgents(projectId);
+      setAgents(list);
+    } catch {
+      // Best effort
+    }
+  }, [projectId]);
+
+  const handleRevokeAgent = async (agentId: string) => {
+    if (!projectId) return;
+    setIsRevokingAgent(true);
+    try {
+      await agentService.revokeAgent(projectId, agentId);
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(null);
+      }
+      await loadAgents();
+    } catch (err: any) {
+      console.error('Failed to revoke agent:', err);
+    } finally {
+      setIsRevokingAgent(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
     loadApiTests();
-  }, [loadData, loadApiTests]);
+    loadAgents();
+  }, [loadData, loadApiTests, loadAgents]);
 
   // When switching tabs, reload corresponding data
   useEffect(() => {
@@ -241,8 +278,9 @@ export const ProjectDetailsPage: React.FC = () => {
       loadRequests(requestFilterParams);
     } else if (activeTab === 'api-testing') {
       loadApiTests();
+      loadAgents();
     }
-  }, [activeTab, timeRange, requestFilterParams, loadAnalytics, loadRequests, loadApiTests]);
+  }, [activeTab, timeRange, requestFilterParams, loadAnalytics, loadRequests, loadApiTests, loadAgents]);
 
   const handleCopyBaseUrl = async () => {
     if (!mockBaseUrl) return;
@@ -319,27 +357,133 @@ export const ProjectDetailsPage: React.FC = () => {
 
     setIsSending(true);
     try {
-      const run = await apiTestingService.executeUnsavedTest(projectId, {
-        method: builderMethod,
-        url: builderUrl.trim(),
-        queryParams: builderQueryParams.filter((p) => p.key.trim() && p.enabled !== false),
-        headers: builderHeaders.filter((h) => h.key.trim() && h.enabled !== false),
-        requestBody: builderRequestBody.trim() ? builderRequestBody : null,
-        authenticationType: builderAuthType,
-        authenticationConfig: builderAuthType !== 'NONE' ? builderAuthConfig : undefined,
-        timeoutMs: 15000,
-        expectedStatusCode: builderExpectedStatusCode,
-        expectedResponse: builderAssertions.filter((a) => a.field.trim()),
-        maxResponseTime: builderMaxResponseTime,
-        saveRun: Boolean(selectedApiTest),
-      });
+      if (selectedAgentId) {
+        // Enqueue execution on local agent
+        const queryParamsObj: Record<string, string> = {};
+        builderQueryParams
+          .filter((p) => p.key.trim() && p.enabled !== false)
+          .forEach((p) => {
+            queryParamsObj[p.key.trim()] = p.value;
+          });
+
+        const headersObj: Record<string, string> = {};
+        builderHeaders
+          .filter((h) => h.key.trim() && h.enabled !== false)
+          .forEach((h) => {
+            headersObj[h.key.trim()] = h.value;
+          });
+
+        let parsedBody: any = undefined;
+        if (builderRequestBody.trim()) {
+          try {
+            parsedBody = JSON.parse(builderRequestBody);
+          } catch {
+            parsedBody = builderRequestBody;
+          }
+        }
+
+        const task = await agentService.enqueueExecution(projectId, {
+          agentId: selectedAgentId,
+          url: builderUrl.trim(),
+          method: builderMethod,
+          queryParams: Object.keys(queryParamsObj).length > 0 ? queryParamsObj : undefined,
+          headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
+          body: parsedBody,
+          timeoutMs: 15000,
+          testConfig: {
+            id: selectedApiTest?.id,
+            name: selectedApiTest?.name || 'Local Diagnostic Test',
+            assertions: builderAssertions
+              .filter((a) => a.field.trim())
+              .map((a) => ({
+                field: a.field,
+                operator: a.operator,
+                expectedValue: a.value !== undefined ? String(a.value) : '',
+              })),
+          },
+        });
+
+        // Poll task status until complete or failed (max 30s)
+        const startTime = Date.now();
+        let finished = false;
+        while (!finished && Date.now() - startTime < 30000) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          const updatedTask = await agentService.getTask(projectId, task.id);
+          if (updatedTask.status === 'COMPLETED' || updatedTask.status === 'FAILED') {
+            finished = true;
+            if (updatedTask.apiTestRun) {
+              setCurrentRun(updatedTask.apiTestRun);
+            } else if (updatedTask.result) {
+              setCurrentRun({
+                id: 'agent-' + updatedTask.id,
+                projectId,
+                apiTestId: selectedApiTest?.id || null,
+                status: updatedTask.status === 'COMPLETED' ? 'PASSED' : 'FAILED',
+                actualStatusCode: updatedTask.result.statusCode,
+                responseTime: updatedTask.result.responseTime,
+                responseSize: updatedTask.result.responseSize,
+                responseHeaders: updatedTask.result.responseHeaders,
+                assertionResults: [],
+                sanitizedResponseBody: updatedTask.result.rawBody,
+                errorMessage: updatedTask.result.errorMessage || null,
+                executedAt: new Date().toISOString(),
+                diagnosticReport: updatedTask.diagnosticReport as any,
+              });
+            }
+            break;
+          }
+        }
+
+        if (!finished) {
+          throw new Error('Local agent execution timed out waiting for agent response.');
+        }
+
+        loadApiTests();
+        return;
+      }
+
+      let run: ApiTestRun;
+      if (selectedApiTest) {
+        // Executing a saved test: persist execution run and link to the saved test ID
+        run = await apiTestingService.executeUnsavedTest(projectId, {
+          apiTestId: selectedApiTest.id,
+          method: builderMethod,
+          url: builderUrl.trim(),
+          queryParams: builderQueryParams.filter((p) => p.key.trim() && p.enabled !== false),
+          headers: builderHeaders.filter((h) => h.key.trim() && h.enabled !== false),
+          requestBody: builderRequestBody.trim() ? builderRequestBody : null,
+          authenticationType: builderAuthType,
+          authenticationConfig: builderAuthType !== 'NONE' ? builderAuthConfig : undefined,
+          timeoutMs: 15000,
+          expectedStatusCode: builderExpectedStatusCode,
+          expectedResponse: builderAssertions.filter((a) => a.field.trim()),
+          maxResponseTime: builderMaxResponseTime,
+          saveRun: true,
+        });
+      } else {
+        // Ephemeral unsaved request: execute without creating unwanted persistent history
+        run = await apiTestingService.executeUnsavedTest(projectId, {
+          method: builderMethod,
+          url: builderUrl.trim(),
+          queryParams: builderQueryParams.filter((p) => p.key.trim() && p.enabled !== false),
+          headers: builderHeaders.filter((h) => h.key.trim() && h.enabled !== false),
+          requestBody: builderRequestBody.trim() ? builderRequestBody : null,
+          authenticationType: builderAuthType,
+          authenticationConfig: builderAuthType !== 'NONE' ? builderAuthConfig : undefined,
+          timeoutMs: 15000,
+          expectedStatusCode: builderExpectedStatusCode,
+          expectedResponse: builderAssertions.filter((a) => a.field.trim()),
+          maxResponseTime: builderMaxResponseTime,
+          saveRun: false,
+        });
+      }
 
       setCurrentRun(run);
-      // Refresh saved tests to update last run indicators
-      loadApiTests();
+      // Refresh saved tests to update last run indicators immediately
+      await loadApiTests();
     } catch (err: any) {
       // Build synthetic error run
-      const errMsg = err?.response?.data?.message || err?.message || 'Execution failed';
+      const errMsg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Execution failed';
       setCurrentRun({
         id: 'error-' + Date.now(),
         projectId,
@@ -807,6 +951,14 @@ export const ProjectDetailsPage: React.FC = () => {
             </button>
           </div>
 
+          {/* Local Diagnostic Agent Status */}
+          <AgentStatusCard
+            agents={agents}
+            onOpenPairModal={() => setIsPairModalOpen(true)}
+            onRevokeAgent={handleRevokeAgent}
+            isRevoking={isRevokingAgent}
+          />
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Column: Saved Tests List */}
             <div className="lg:col-span-4 xl:col-span-3">
@@ -852,6 +1004,10 @@ export const ProjectDetailsPage: React.FC = () => {
                 isSending={isSending}
                 isSaving={isSaving}
                 activeTestName={selectedApiTest?.name}
+                agents={agents}
+                selectedAgentId={selectedAgentId}
+                onSelectAgentId={setSelectedAgentId}
+                onOpenPairModal={() => setIsPairModalOpen(true)}
               />
 
               <ResponseViewer run={currentRun} isLoading={isSending} diagnosticReport={currentRun?.diagnosticReport} />
@@ -902,6 +1058,15 @@ export const ProjectDetailsPage: React.FC = () => {
           projectId={project.id}
           projectName={project.name}
           onClose={() => setIsDiagnosticsOverviewOpen(false)}
+        />
+      )}
+
+      {projectId && (
+        <AgentPairingModal
+          projectId={projectId}
+          isOpen={isPairModalOpen}
+          onClose={() => setIsPairModalOpen(false)}
+          onAgentConnected={() => loadAgents()}
         />
       )}
     </div>

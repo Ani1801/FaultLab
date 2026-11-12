@@ -2,7 +2,7 @@
 
 FaultLab is a scalable API simulation and failure-testing platform for testing distributed system resiliency and chaos scenarios.
 
-This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Phase 3A (Workspaces), Phase 3B (Projects), Phase 4 (Mock Endpoint Simulation), Phase 5 (Fault Injection Engine), Phase 6 (Request History & Analytics Engine), Phase 7 (Real API Testing Engine), and Phase 8 (API Diagnostic Engine)**.
+This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Phase 3A (Workspaces), Phase 3B (Projects), Phase 4 (Mock Endpoint Simulation), Phase 5 (Fault Injection Engine), Phase 6 (Request History & Analytics Engine), Phase 7 (Real API Testing Engine), Phase 8 (API Diagnostic Engine), and Phase 9 (Local Diagnostic Agent)**.
 
 ---
 
@@ -17,8 +17,9 @@ This repository implements **Phase 1 (Foundations), Phase 2 (Authentication), Ph
 - **Request History & Analytics Engine**: Non-blocking asynchronous request recording, aggregate performance metrics, SVG volume visualization, and filterable history logs
 - **Real API Testing Engine**: Safe outbound HTTP testing against external live APIs, multi-layer SSRF defense, AES-256-GCM credential encryption, deterministic assertion engine (status, latency, nested JSON paths), saved test suites, and execution run history
 - **API Diagnostic Engine**: Deterministic rule-based automated troubleshooting system that analyzes real API test results, categorizes root causes into 7 domains (HTTP Status, Authentication, Request Config, Response, Network/Connection, Performance, Assertion), calculates overall diagnostic health, and provides actionable debugging recommendations with evidence
+- **Local Diagnostic Agent**: Standalone background worker (`/packages/faultlab-agent`) enabling safe testing of local microservices (`localhost:PORT`) via outbound-only HTTPS polling, short-lived pairing sessions (`FLAB-XXXX-YYYY`), revocable tokens (`fla_*`), strict origin guards, and client-side credential redaction
 - **Configuration**: Zod validation for runtime environment variables
-- **Documentation**: Comprehensive architectural, database, and learning notes guides (`/docs`)
+- **Documentation**: Comprehensive architectural, database, security, and learning notes guides (`/docs`)
 
 ---
 
@@ -250,5 +251,6 @@ cd server && npx prisma studio
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – Monorepo structure, folder responsibilities, and system design
 - [docs/DATABASE.md](docs/DATABASE.md) – Database schema, entity relationships, and Prisma workflows
-- [docs/LEARNING_NOTES.md](docs/LEARNING_NOTES.md) – Architectural decisions, trade-offs, and Phase 2 roadmap
+- [docs/LEARNING_NOTES.md](docs/LEARNING_NOTES.md) – Architectural decisions, trade-offs, and design notes
+- [docs/LOCAL_AGENT_SECURITY.md](docs/LOCAL_AGENT_SECURITY.md) – Local Diagnostic Agent security model, outbound polling, and CLI reference
 

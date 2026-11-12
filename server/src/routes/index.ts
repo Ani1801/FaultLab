@@ -23,6 +23,10 @@ import {
   diagnosticRunRouter,
   projectDiagnosticsRouter,
 } from '../modules/diagnostics/diagnostic.routes.js';
+import {
+  projectAgentsRouter,
+  agentRuntimeRouter,
+} from '../modules/agents/agent.routes.js';
 
 export const apiRouter = Router();
 
@@ -36,6 +40,8 @@ apiRouter.use('/projects/:projectId/requests', projectRequestsRouter);
 apiRouter.use('/projects/:projectId/analytics', projectAnalyticsRouter);
 apiRouter.use('/projects/:projectId/api-tests', projectApiTestsRouter);
 apiRouter.use('/projects/:projectId/diagnostics', projectDiagnosticsRouter);
+apiRouter.use('/projects/:projectId/agents', projectAgentsRouter);
+apiRouter.use('/agent', agentRuntimeRouter);
 apiRouter.use('/projects', projectRouter);
 apiRouter.use('/endpoints', endpointRouter);
 apiRouter.use('/api-tests', apiTestRouter);

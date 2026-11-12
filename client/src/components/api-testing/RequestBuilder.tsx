@@ -7,6 +7,7 @@ import type {
   AssertionOperator,
   AuthConfigInput,
 } from '../../types/apiTesting';
+import type { LocalAgent } from '../../types/agent';
 import {
   Send,
   Save,
@@ -18,6 +19,9 @@ import {
   Sliders,
   CheckCircle2,
   Loader2,
+  Laptop,
+  Cloud,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface RequestBuilderProps {
@@ -47,6 +51,10 @@ interface RequestBuilderProps {
   isSending?: boolean;
   isSaving?: boolean;
   activeTestName?: string | null;
+  agents?: LocalAgent[];
+  selectedAgentId?: string | null;
+  onSelectAgentId?: (id: string | null) => void;
+  onOpenPairModal?: () => void;
 }
 
 export const RequestBuilder: React.FC<RequestBuilderProps> = ({
@@ -76,8 +84,14 @@ export const RequestBuilder: React.FC<RequestBuilderProps> = ({
   isSending,
   isSaving,
   activeTestName,
+  agents = [],
+  selectedAgentId = null,
+  onSelectAgentId,
+  onOpenPairModal,
 }) => {
   const [activeSubtab, setActiveSubtab] = useState<'params' | 'headers' | 'auth' | 'body' | 'assertions'>('params');
+
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
 
   const methodColors: Record<HttpMethod, string> = {
     GET: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
@@ -137,16 +151,113 @@ export const RequestBuilder: React.FC<RequestBuilderProps> = ({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-      {/* Active Test Banner if viewing a saved test */}
-      {activeTestName && (
+      {/* Active Test Banner / Environment State */}
+      {activeTestName ? (
         <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-xs">
           <div className="flex items-center gap-2 text-indigo-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-            <span>Editing Test: {activeTestName}</span>
+            <span>Saved Test: <strong className="text-white">{activeTestName}</strong></span>
           </div>
-          <span className="text-slate-500 font-mono text-[11px]">Saved Configuration</span>
+          <span className="text-indigo-400/80 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono text-[10px]">
+            Saved Test Mode (Executions Persisted)
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-xs">
+          <div className="flex items-center gap-2 text-slate-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-slate-500" />
+            <span>Unsaved Interactive Request</span>
+          </div>
+          <span className="text-slate-500 font-mono text-[10px]">
+            Ephemeral Run (Not Saved to History)
+          </span>
         </div>
       )}
+
+      {/* Execution Environment Selector */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-1 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">Execution Engine:</span>
+          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => onSelectAgentId && onSelectAgentId(null)}
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition text-[11px] font-medium ${
+                !selectedAgentId
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Cloud className="w-3 h-3" />
+              <span>Cloud Engine</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (agents && agents.length > 0) {
+                  const firstAgent =
+                    agents.find((a) => a.status === 'ONLINE') ||
+                    agents.find((a) => a.status === 'OFFLINE') ||
+                    agents[0];
+                  if (firstAgent && onSelectAgentId) onSelectAgentId(firstAgent.id);
+                } else if (onOpenPairModal) {
+                  onOpenPairModal();
+                }
+              }}
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition text-[11px] font-medium ${
+                selectedAgentId
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Laptop className="w-3 h-3" />
+              <span>Local Agent</span>
+            </button>
+          </div>
+
+          {selectedAgentId && agents.length > 0 && (
+            <select
+              value={selectedAgentId}
+              onChange={(e) => onSelectAgentId && onSelectAgentId(e.target.value)}
+              className="bg-slate-950 border border-emerald-500/40 text-emerald-400 text-[11px] font-mono rounded-lg px-2 py-1 focus:outline-none"
+            >
+              {agents.map((ag) => (
+                <option
+                  key={ag.id}
+                  value={ag.id}
+                  disabled={ag.status === 'REVOKED'}
+                  className={ag.status === 'REVOKED' ? 'text-red-400 line-through' : ''}
+                >
+                  {ag.name} ({ag.approvedOrigin}) - {ag.status}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {(!agents || agents.length === 0) && (
+            <button
+              type="button"
+              onClick={onOpenPairModal}
+              className="text-[11px] text-emerald-400 hover:text-emerald-300 underline font-medium"
+            >
+              Pair a local agent
+            </button>
+          )}
+        </div>
+
+        {selectedAgent && (
+          selectedAgent.status === 'REVOKED' ? (
+            <div className="text-[11px] text-red-400 font-mono bg-red-950/40 px-2.5 py-1 rounded-md border border-red-800/50 flex items-center space-x-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+              <span>Agent credentials revoked. Choose an active agent or connect a new one.</span>
+            </div>
+          ) : (
+            <div className="text-[11px] text-emerald-400 font-mono bg-emerald-950/40 px-2.5 py-0.5 rounded-md border border-emerald-800/50">
+              Local origin restricted to: <span className="font-semibold text-white">{selectedAgent.approvedOrigin}</span>
+            </div>
+          )
+        )}
+      </div>
 
       {/* Main Request Input Bar */}
       <div className="flex flex-col sm:flex-row gap-2">
@@ -182,18 +293,34 @@ export const RequestBuilder: React.FC<RequestBuilderProps> = ({
           <button
             type="button"
             onClick={onSend}
-            disabled={isSending || !url.trim()}
+            disabled={isSending || !url.trim() || selectedAgent?.status === 'REVOKED'}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-indigo-600/20"
           >
             {isSending ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Sending...</span>
+                <span>
+                  {selectedAgentId
+                    ? 'Running on Agent...'
+                    : activeTestName
+                    ? 'Executing Test...'
+                    : 'Sending...'}
+                </span>
               </>
             ) : (
               <>
-                <Send className="w-3.5 h-3.5" />
-                <span>Send</span>
+                {selectedAgentId ? (
+                  <Laptop className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {selectedAgentId
+                    ? 'Run via Agent'
+                    : activeTestName
+                    ? 'Run Saved Test'
+                    : 'Send'}
+                </span>
               </>
             )}
           </button>
@@ -568,7 +695,7 @@ export const RequestBuilder: React.FC<RequestBuilderProps> = ({
                   <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Path (e.g. data.id, status)"
+                      placeholder="Path (e.g. $.id, data.items[0])"
                       value={assertion.field}
                       onChange={(e) => updateAssertion(idx, 'field', e.target.value)}
                       className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"

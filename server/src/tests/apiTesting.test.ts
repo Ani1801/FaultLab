@@ -3,6 +3,14 @@ import request from 'supertest';
 import { createApp } from '../app.js';
 import { prisma } from '../utils/prisma.js';
 import { validateSsrfTarget } from '../modules/api-testing/ssrf.validator.js';
+import {
+  getNestedValue,
+  parsePathSegments,
+  isEqual,
+  toNumeric,
+  evaluateJsonAssertion,
+  evaluateTestAssertions,
+} from '../modules/api-testing/assertion.engine.js';
 
 const app = createApp();
 
@@ -176,6 +184,20 @@ async function executeApiTestingSuite() {
     if (url.pathname === '/redirect-to-ssrf') {
       res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data' });
       res.end();
+      return;
+    }
+
+    // Route: /posts/1 (Reproduction of jsonplaceholder manual test case)
+    if (url.pathname === '/posts/1') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          userId: 1,
+          id: 1,
+          title: 'sunt aut facere repellat provident occaecati excepturi optio reprehenderit',
+          body: 'quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto',
+        })
+      );
       return;
     }
 
@@ -600,6 +622,186 @@ async function executeApiTestingSuite() {
       assert(failRes.body.run.status === 'FAILED', 'Expected latency assertion to fail');
     });
 
+    // --- JSON Assertion Engine Regression Tests ---
+
+    await runTest('Assertions Regression: JSONPath $.id, $.userId, $.title against /posts/1 (Exact manual test case)', async () => {
+      const res = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests/execute`)
+        .set('Cookie', userACookie)
+        .send({
+          method: 'GET',
+          url: `${targetBaseUrl}/posts/1`,
+          expectedStatusCode: 200,
+          maxResponseTime: 2000,
+          expectedResponse: [
+            { field: '$.id', operator: 'EQUALS', value: '1' },
+            { field: '$.userId', operator: 'EQUALS', value: '1' },
+            { field: '$.title', operator: 'EXISTS' },
+          ],
+        });
+
+      assert(res.status === 200, `Expected HTTP 200, got ${res.status}`);
+      assert(res.body.run.status === 'PASSED', `Expected test run to be PASSED, got ${res.body.run.status}`);
+      assert(res.body.run.actualStatusCode === 200, 'Expected actual status 200');
+
+      const results = res.body.run.assertionResults;
+      assert(results.length === 5, `Expected 5 assertions (status, latency, 3 json), got ${results.length}`);
+      assert(results.every((r: any) => r.passed === true), 'All 5 assertions should pass');
+
+      const idAssertion = results.find((r: any) => r.name.includes('$.id'));
+      assert(idAssertion && idAssertion.passed, '$.id assertion should pass');
+      assert(idAssertion.actual === 1, `Expected $.id actual to be 1, got ${idAssertion.actual}`);
+
+      const userAssertion = results.find((r: any) => r.name.includes('$.userId'));
+      assert(userAssertion && userAssertion.passed, '$.userId assertion should pass');
+      assert(userAssertion.actual === 1, `Expected $.userId actual to be 1, got ${userAssertion.actual}`);
+
+      const titleAssertion = results.find((r: any) => r.name.includes('$.title'));
+      assert(titleAssertion && titleAssertion.passed, '$.title assertion should pass');
+    });
+
+    await runTest('Assertions Regression: Negative assertions against /posts/1 fail with clear error messages', async () => {
+      const res = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests/execute`)
+        .set('Cookie', userACookie)
+        .send({
+          method: 'GET',
+          url: `${targetBaseUrl}/posts/1`,
+          expectedResponse: [
+            { field: '$.id', operator: 'EQUALS', value: '2' }, // Fails: actual is 1
+            { field: '$.missingField', operator: 'EXISTS' }, // Fails: does not exist
+            { field: '$.missingField', operator: 'NOT_EXISTS' }, // Passes
+          ],
+        });
+
+      assert(res.body.run.status === 'FAILED', 'Expected run to fail due to mismatch');
+      const results = res.body.run.assertionResults;
+      assert(results.length === 3, 'Expected 3 assertions');
+
+      const idRes = results[0];
+      assert(!idRes.passed, 'Expected $.id EQUALS 2 to fail');
+      assert(idRes.message.includes('Expected "$.id" to equal "2", but received 1'), `Unexpected message: ${idRes.message}`);
+
+      const missingExistsRes = results[1];
+      assert(!missingExistsRes.passed, 'Expected $.missingField EXISTS to fail');
+      assert(missingExistsRes.message.includes('Field "$.missingField" does not exist'), `Unexpected message: ${missingExistsRes.message}`);
+
+      const missingNotExistsRes = results[2];
+      assert(missingNotExistsRes.passed, 'Expected $.missingField NOT_EXISTS to pass');
+    });
+
+    await runTest('Assertions: Unit tests for path parser and nested value extraction', async () => {
+      // 1. parsePathSegments
+      assert(JSON.stringify(parsePathSegments('$.id')) === JSON.stringify(['id']), '$.id parse');
+      assert(JSON.stringify(parsePathSegments('$.user.name')) === JSON.stringify(['user', 'name']), '$.user.name parse');
+      assert(JSON.stringify(parsePathSegments('$.items[0].id')) === JSON.stringify(['items', '0', 'id']), '$.items[0].id parse');
+      assert(JSON.stringify(parsePathSegments('$[0].id')) === JSON.stringify(['0', 'id']), '$[0].id parse');
+      assert(JSON.stringify(parsePathSegments('data[\'user-id\']')) === JSON.stringify(['data', 'user-id']), 'bracket quote parse');
+      assert(JSON.stringify(parsePathSegments('data["user-id"]')) === JSON.stringify(['data', 'user-id']), 'double quote bracket parse');
+      assert(JSON.stringify(parsePathSegments('$')) === JSON.stringify([]), '$ parse');
+      assert(JSON.stringify(parsePathSegments('')) === JSON.stringify([]), 'empty path parse');
+
+      // 2. getNestedValue
+      const testData = {
+        id: 42,
+        user: { name: 'Alice', active: true },
+        items: [{ title: 'Item 0' }, { title: 'Item 1' }],
+        deletedAt: null,
+      };
+
+      assert(getNestedValue(testData, '$.id') === 42, '$.id resolution');
+      assert(getNestedValue(testData, 'id') === 42, 'id resolution');
+      assert(getNestedValue(testData, '$.user.name') === 'Alice', 'nested resolution');
+      assert(getNestedValue(testData, '$.items[1].title') === 'Item 1', 'array index resolution');
+      assert(getNestedValue(testData, '$.items[99]') === undefined, 'out of bounds array resolution');
+      assert(getNestedValue(testData, '$.deletedAt') === null, 'null field resolution');
+      assert(getNestedValue(testData, '$.deletedAt.invalid') === undefined, 'access on null resolution');
+      assert(getNestedValue(testData, '$') === testData, 'root $ resolution');
+      assert(getNestedValue(testData, '$.__proto__.polluted') === undefined, 'prototype pollution blocked');
+      assert(getNestedValue(testData, 'constructor.name') === undefined, 'constructor blocked');
+
+      // 3. Serialized JSON string input
+      const jsonStr = '{"status":"ready","count":5}';
+      assert(getNestedValue(jsonStr, '$.status') === 'ready', 'serialized JSON string resolution');
+      assert(getNestedValue(jsonStr, 'count') === 5, 'serialized JSON count resolution');
+
+      // 4. Plain text response
+      const plainText = 'Bad Gateway';
+      assert(getNestedValue(plainText, '$') === 'Bad Gateway', 'plain text root resolution');
+      assert(getNestedValue(plainText, '$.id') === undefined, 'plain text property resolution');
+
+      // 5. Invalid JSON string
+      const brokenJson = '{ not valid json';
+      assert(getNestedValue(brokenJson, '$.id') === undefined, 'broken JSON safe resolution');
+    });
+
+    await runTest('Assertions: Unit tests for equality and type coercion (isEqual & toNumeric)', async () => {
+      // Numbers vs numeric strings
+      assert(isEqual(1, '1') === true, '1 vs "1" should be equal');
+      assert(isEqual('1', 1) === true, '"1" vs 1 should be equal');
+      assert(isEqual(0, '0') === true, '0 vs "0" should be equal');
+      assert(isEqual(0, '') === false, '0 vs "" should NOT be equal');
+
+      // Booleans vs strings
+      assert(isEqual(true, 'true') === true, 'true vs "true"');
+      assert(isEqual(false, 'false') === true, 'false vs "false"');
+      assert(isEqual(true, 'false') === false, 'true vs "false"');
+
+      // Null handling
+      assert(isEqual(null, 'null') === true, 'null vs "null"');
+      assert(isEqual(null, 'NULL') === true, 'null vs "NULL"');
+      assert(isEqual(null, undefined) === false, 'null vs undefined');
+
+      // toNumeric helper
+      assert(toNumeric(42) === 42, 'numeric 42');
+      assert(toNumeric('42') === 42, 'string "42"');
+      assert(toNumeric(null) === null, 'null should return null, not 0');
+      assert(toNumeric(undefined) === null, 'undefined should return null');
+      assert(toNumeric(false) === null, 'false should return null, not 0');
+      assert(toNumeric('') === null, 'empty string should return null, not 0');
+
+      // GREATER_THAN / LESS_THAN safely rejecting null
+      const gtRes = evaluateJsonAssertion(
+        { field: '$.val', operator: 'GREATER_THAN', value: -1 },
+        { val: null }
+      );
+      assert(gtRes.passed === false, 'null GREATER_THAN -1 must fail');
+
+      const ltRes = evaluateJsonAssertion(
+        { field: '$.val', operator: 'LESS_THAN', value: 10 },
+        { val: null }
+      );
+      assert(ltRes.passed === false, 'null LESS_THAN 10 must fail');
+    });
+
+    await runTest('Assertions: Unit tests for evaluateTestAssertions orchestrator', async () => {
+      // Execution error case
+      const errEval = evaluateTestAssertions({
+        actualStatusCode: null,
+        actualResponseTime: 0,
+        responseBody: null,
+        isExecutionError: true,
+      });
+      assert(errEval.status === 'ERROR', 'Expected ERROR status for execution error');
+      assert(errEval.allPassed === false, 'Expected allPassed false');
+
+      // Normal evaluation with string serialized response body
+      const passedEval = evaluateTestAssertions({
+        actualStatusCode: 200,
+        actualResponseTime: 120,
+        responseBody: '{"user":{"id":99,"name":"Charlie"}}',
+        expectedStatusCode: 200,
+        maxResponseTime: 500,
+        jsonAssertions: [
+          { field: '$.user.id', operator: 'EQUALS', value: 99 },
+          { field: '$.user.name', operator: 'EQUALS', value: 'Charlie' },
+        ],
+      });
+      assert(passedEval.status === 'PASSED', 'Expected PASSED evaluation');
+      assert(passedEval.allPassed === true, 'Expected allPassed true');
+      assert(passedEval.assertionResults.length === 4, 'Expected 4 assertion results');
+    });
+
     // =============================================================
     // 4. SAVED API TESTS CRUD & OWNERSHIP ISOLATION
     // =============================================================
@@ -695,6 +897,151 @@ async function executeApiTestingSuite() {
         where: { apiTestId: savedTestId },
       });
       assert(remainingRuns === 0, 'Expected 0 remaining test runs after test deletion');
+    });
+
+    // =============================================================
+    // 5. MULTI-RUN HISTORY PERSISTENCE & ISOLATION REGRESSION
+    // =============================================================
+
+    let multiRunTestId = '';
+
+    await runTest('History Regression: Setup dedicated saved test for 4 consecutive executions', async () => {
+      const res = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests`)
+        .set('Cookie', userACookie)
+        .send({
+          name: 'Get Post By ID',
+          method: 'GET',
+          url: `${targetBaseUrl}/posts/1`,
+          expectedStatusCode: 200,
+          expectedResponse: [
+            { field: '$.id', operator: 'EQUALS', value: '1' },
+            { field: '$.userId', operator: 'EQUALS', value: '1' },
+          ],
+        });
+
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      multiRunTestId = res.body.test.id;
+    });
+
+    await runTest('History Regression: Execute saved test 4 times and confirm 4 distinct ApiTestRun records referencing same apiTestId', async () => {
+      const initialRunsCount = await prisma.apiTestRun.count({
+        where: { apiTestId: multiRunTestId },
+      });
+      assert(initialRunsCount === 0, 'Expected 0 initial runs');
+
+      // Execution 1: via run endpoint (/api-tests/:id/run)
+      const run1 = await request(app)
+        .post(`/api/v1/api-tests/${multiRunTestId}/run`)
+        .set('Cookie', userACookie);
+      assert(run1.status === 200, `Run 1 failed: ${run1.status}`);
+      assert(run1.body.run.apiTestId === multiRunTestId, 'Run 1 apiTestId mismatch');
+
+      // Execution 2: via run endpoint (/api-tests/:id/run)
+      const run2 = await request(app)
+        .post(`/api/v1/api-tests/${multiRunTestId}/run`)
+        .set('Cookie', userACookie);
+      assert(run2.status === 200, `Run 2 failed: ${run2.status}`);
+      assert(run2.body.run.apiTestId === multiRunTestId, 'Run 2 apiTestId mismatch');
+
+      // Execution 3: via execute endpoint with apiTestId (simulating RequestBuilder Send on saved test)
+      const run3 = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests/execute`)
+        .set('Cookie', userACookie)
+        .send({
+          apiTestId: multiRunTestId,
+          method: 'GET',
+          url: `${targetBaseUrl}/posts/1`,
+          expectedStatusCode: 200,
+          expectedResponse: [
+            { field: '$.id', operator: 'EQUALS', value: '1' },
+          ],
+          saveRun: true,
+        });
+      assert(run3.status === 200, `Run 3 failed: ${run3.status}`);
+      assert(run3.body.run.apiTestId === multiRunTestId, 'Run 3 apiTestId mismatch');
+
+      // Execution 4: via execute endpoint with apiTestId
+      const run4 = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests/execute`)
+        .set('Cookie', userACookie)
+        .send({
+          apiTestId: multiRunTestId,
+          method: 'GET',
+          url: `${targetBaseUrl}/posts/1`,
+          expectedStatusCode: 200,
+          expectedResponse: [
+            { field: '$.id', operator: 'EQUALS', value: '1' },
+          ],
+          saveRun: true,
+        });
+      assert(run4.status === 200, `Run 4 failed: ${run4.status}`);
+      assert(run4.body.run.apiTestId === multiRunTestId, 'Run 4 apiTestId mismatch');
+
+      // Confirm 4 distinct ApiTestRun records exist in the database
+      const dbRuns = await prisma.apiTestRun.findMany({
+        where: { apiTestId: multiRunTestId },
+        orderBy: { executedAt: 'desc' },
+      });
+      assert(dbRuns.length === 4, `Expected exactly 4 records in DB, found ${dbRuns.length}`);
+
+      // Confirm all 4 records reference the same apiTestId
+      assert(dbRuns.every((r) => r.apiTestId === multiRunTestId), 'All 4 records must have correct apiTestId');
+
+      // Confirm all 4 IDs are unique
+      const uniqueIds = new Set(dbRuns.map((r) => r.id));
+      assert(uniqueIds.size === 4, 'Expected 4 distinct run IDs');
+    });
+
+    await runTest('History Regression: Retrieve test execution history (GET /api-tests/:id/runs) returns all 4 runs with pagination', async () => {
+      const res = await request(app)
+        .get(`/api/v1/api-tests/${multiRunTestId}/runs?page=1&limit=10`)
+        .set('Cookie', userACookie);
+
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.runs.length === 4, `Expected 4 runs in history response, got ${res.body.runs.length}`);
+      assert(res.body.runs.every((r: any) => r.apiTestId === multiRunTestId), 'All returned runs must reference multiRunTestId');
+      assert(res.body.pagination.totalCount === 4, `Expected totalCount 4, got ${res.body.pagination.totalCount}`);
+      assert(res.body.pagination.total === 4, `Expected total 4, got ${res.body.pagination.total}`);
+    });
+
+    await runTest('History Regression: Ephemeral unsaved test execution creates NO database record', async () => {
+      const runsBefore = await prisma.apiTestRun.count();
+
+      const res = await request(app)
+        .post(`/api/v1/projects/${projectAId}/api-tests/execute`)
+        .set('Cookie', userACookie)
+        .send({
+          method: 'GET',
+          url: `${targetBaseUrl}/echo`,
+          saveRun: false,
+        });
+
+      assert(res.status === 200, 'Expected 200');
+      assert(res.body.run.apiTestId === null, 'Expected null apiTestId');
+      assert(res.body.run.id.startsWith('ephemeral-'), 'Expected ephemeral run ID prefix');
+
+      const runsAfter = await prisma.apiTestRun.count();
+      assert(runsAfter === runsBefore, `Expected run count unchanged (${runsBefore}), but was ${runsAfter}`);
+    });
+
+    await runTest('History Regression: Security anti-IDOR checks on execute and history endpoints', async () => {
+      // User B cannot execute User A saved test via execute endpoint with apiTestId
+      const crossExecuteRes = await request(app)
+        .post(`/api/v1/projects/${projectBId}/api-tests/execute`)
+        .set('Cookie', userBCookie)
+        .send({
+          apiTestId: multiRunTestId,
+          method: 'GET',
+          url: `${targetBaseUrl}/echo`,
+        });
+      assert(crossExecuteRes.status === 404, `Expected 404 for cross-tenant apiTestId in execute, got ${crossExecuteRes.status}`);
+
+      // User B cannot view User A test runs history
+      const crossHistoryRes = await request(app)
+        .get(`/api/v1/api-tests/${multiRunTestId}/runs`)
+        .set('Cookie', userBCookie);
+      assert(crossHistoryRes.status === 404, `Expected 404 for cross-tenant history view, got ${crossHistoryRes.status}`);
     });
 
     await runTest('Saved Tests: Deleting a project cascades and deletes all child API tests and runs', async () => {

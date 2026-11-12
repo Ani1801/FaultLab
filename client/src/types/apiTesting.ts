@@ -115,6 +115,7 @@ export interface UpdateApiTestInput {
 }
 
 export interface ExecuteUnsavedInput {
+  apiTestId?: string | null;
   method: HttpMethod;
   url: string;
   queryParams?: KeyValuePair[];

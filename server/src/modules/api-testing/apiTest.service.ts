@@ -404,6 +404,28 @@ export class ApiTestService {
       throw error;
     }
 
+    // Verify associated saved test if apiTestId is provided (Strict anti-IDOR check)
+    let associatedTest: any = null;
+    if (data.apiTestId) {
+      associatedTest = await prisma.apiTest.findFirst({
+        where: {
+          id: data.apiTestId,
+          projectId,
+          project: {
+            workspace: {
+              ownerId: userId,
+            },
+          },
+        },
+      });
+
+      if (!associatedTest) {
+        const error = new Error('API test not found') as Error & { statusCode: number };
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+
     let authConfig: AuthExecutionConfig | null = null;
     if (data.authenticationType && data.authenticationType !== 'NONE' && data.authenticationConfig) {
       authConfig = {
@@ -415,6 +437,29 @@ export class ApiTestService {
         apiKeyValue: data.authenticationConfig.value,
         apiKeyAddTo: data.authenticationConfig.addTo || 'HEADER',
       };
+    }
+
+    // Fall back to stored encrypted credentials from associated saved test if client did not supply them
+    if (
+      associatedTest &&
+      (!authConfig || (!authConfig.token && !authConfig.password && !authConfig.apiKeyValue)) &&
+      associatedTest.authenticationType !== 'NONE' &&
+      associatedTest.authenticationConfig
+    ) {
+      try {
+        const decrypted = decryptCredentials<any>(associatedTest.authenticationConfig);
+        authConfig = {
+          type: associatedTest.authenticationType as any,
+          token: decrypted.token,
+          username: decrypted.username,
+          password: decrypted.password,
+          apiKeyKey: decrypted.key,
+          apiKeyValue: decrypted.value,
+          apiKeyAddTo: decrypted.addTo || 'HEADER',
+        };
+      } catch (err) {
+        console.warn('Failed to decrypt credentials for associated test:', associatedTest.id);
+      }
     }
 
     // Execute HTTP request
@@ -439,12 +484,14 @@ export class ApiTestService {
       isExecutionError: execution.isExecutionError,
     });
 
-    // Save run if requested
-    if (data.saveRun) {
+    const shouldSaveRun = Boolean(data.saveRun || associatedTest);
+
+    // Save run if requested or if executing a saved test
+    if (shouldSaveRun) {
       const run = await prisma.apiTestRun.create({
         data: {
           projectId,
-          apiTestId: null,
+          apiTestId: associatedTest ? associatedTest.id : null,
           status: evaluation.status as any,
           actualStatusCode: execution.statusCode,
           responseTime: execution.responseTime,
@@ -463,7 +510,7 @@ export class ApiTestService {
         input: {
           method: data.method,
           url: data.url,
-          authenticationType: data.authenticationType || 'NONE',
+          authenticationType: data.authenticationType || associatedTest?.authenticationType || 'NONE',
           isExecutionError: execution.isExecutionError,
           statusCode: execution.statusCode,
           responseTime: execution.responseTime,
@@ -471,9 +518,9 @@ export class ApiTestService {
           sanitizedResponseBody: execution.rawBody.slice(0, 65536),
           errorMessage: execution.errorMessage || null,
           assertionResults: evaluation.assertionResults,
-          maxResponseTime: data.maxResponseTime ?? null,
-          expectedStatusCode: data.expectedStatusCode ?? null,
-          timeoutMs: data.timeoutMs || 5000,
+          maxResponseTime: data.maxResponseTime ?? associatedTest?.maxResponseTime ?? null,
+          expectedStatusCode: data.expectedStatusCode ?? associatedTest?.expectedStatusCode ?? null,
+          timeoutMs: data.timeoutMs || associatedTest?.timeoutMs || 5000,
         },
       });
 
@@ -561,6 +608,7 @@ export class ApiTestService {
       pagination: {
         page: safePage,
         limit: safeLimit,
+        total: totalCount,
         totalCount,
         totalPages,
         hasNextPage: safePage < totalPages,

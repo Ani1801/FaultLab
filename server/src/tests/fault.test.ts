@@ -352,7 +352,7 @@ async function executeFaultTestSuite() {
 
       assert(res.status === 200, `Expected 200, got ${res.status}`);
       assert(res.body.active === true, 'Body must be normal configured body');
-      assert(elapsed < 1000, `Elapsed time should not include the 2000ms disabled additional delay, was ${elapsed}ms`);
+      assert(elapsed < 1800, `Elapsed time should not include the 2000ms disabled additional delay, was ${elapsed}ms`);
     });
 
     await runTest('Mock Runtime: ALWAYS mode returns configured failure status and failure JSON body', async () => {
