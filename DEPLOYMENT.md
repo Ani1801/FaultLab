@@ -138,9 +138,21 @@ Create a new **Web Service** on Render:
 | **Branch** | `master` | Main branch |
 | **Root Directory** | `server` | Keeps working directory in `/server` |
 | **Environment** | `Node` | Runtime |
-| **Build Command** | `npm install --include=dev && npm run prisma:generate && npm run build` | Installs dependencies, generates Prisma Client, compiles TypeScript |
+| **Build Command** | `npm install --include=dev && npm run prisma:generate && npm run build && npm run prisma:migrate:deploy` | Installs dev/prod deps, generates Prisma Client, compiles Agent & Server, applies migrations |
 | **Start Command** | `npm start` | Runs `node dist/server.js` |
 | **Plan Type** | **Free** | Render Free tier |
+
+> [!TIP]
+> **Alternative (Root Directory blank / `.`)**:
+> If you leave **Root Directory** empty in Render (defaulting to the repository root):
+> - **Build Command**: `npm --prefix server install --include=dev && npm --prefix server run prisma:generate && npm --prefix server run build && npm --prefix server run prisma:migrate:deploy`
+> - **Start Command**: `npm --prefix server start`
+>
+> **Why `--include=dev` is essential**:
+> Render sets `NODE_ENV=production` by default. Without `--include=dev`, npm skips devDependencies, meaning TypeScript (`tsc`) and `rimraf` are not installed into `node_modules/.bin`. The build would then fall back to `/usr/bin/tsc` and fail.
+>
+> **Why `build:agent` runs first**:
+> Backend test suites and type definitions import compiled Agent artifacts from `packages/faultlab-agent/dist/`. The `build` script in `server/package.json` automatically runs `npm run build:agent` before running `tsc` on the server source code.
 
 ### 5.2 Server Port & Network Binding
 - The backend listens on `process.env.PORT` and explicitly binds to `0.0.0.0`:

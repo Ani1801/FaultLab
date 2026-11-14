@@ -9,7 +9,8 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "rimraf dist && tsc",
+    "build:agent": "tsc -p ../packages/faultlab-agent/tsconfig.json",
+    "build": "npm run build:agent && rimraf dist && tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
