@@ -7,9 +7,18 @@ export const getAuthCookieOptions = (): CookieOptions => {
   return {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'lax' : 'lax',
+    sameSite: 'lax',
     path: '/',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  };
+};
+
+export const getClearCookieOptions = (): CookieOptions => {
+  return {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
   };
 };
 
@@ -98,12 +107,7 @@ export class AuthController {
   async logout(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       // Clear authentication cookie with identical path and security flags
-      res.clearCookie(env.COOKIE_NAME, {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
+      res.clearCookie(env.COOKIE_NAME, getClearCookieOptions());
 
       res.status(200).json({
         status: 'success',

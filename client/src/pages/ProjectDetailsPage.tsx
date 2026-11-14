@@ -162,6 +162,11 @@ export const ProjectDetailsPage: React.FC = () => {
 
   const mockBaseUrl = useMemo(() => {
     if (!projectId) return '';
+    // In production (e.g. deployed on Vercel), mock requests are routed via same-origin reverse proxy
+    if (import.meta.env.PROD) {
+      return `${window.location.origin}/mock/${projectId}`;
+    }
+    // In local development, mock server runs on port 5000
     const protocol = window.location.protocol;
     const hostname = window.location.hostname || 'localhost';
     return `${protocol}//${hostname}:5000/mock/${projectId}`;

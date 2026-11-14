@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { apiTestController } from './apiTest.controller.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { apiTestExecutionRateLimiter } from '../../middleware/rateLimiter.js';
+import { apiTestConcurrencyLimiter } from '../../middleware/concurrencyLimiter.js';
 
 // Router for /api/v1/projects/:projectId/api-tests
 export const projectApiTestsRouter = Router({ mergeParams: true });
@@ -12,7 +14,7 @@ projectApiTestsRouter.post('/', (req, res, next) =>
 projectApiTestsRouter.get('/', (req, res, next) =>
   apiTestController.listApiTests(req, res, next)
 );
-projectApiTestsRouter.post('/execute', (req, res, next) =>
+projectApiTestsRouter.post('/execute', apiTestExecutionRateLimiter, apiTestConcurrencyLimiter, (req, res, next) =>
   apiTestController.executeUnsavedTest(req, res, next)
 );
 
@@ -29,7 +31,7 @@ apiTestRouter.patch('/:id', (req, res, next) =>
 apiTestRouter.delete('/:id', (req, res, next) =>
   apiTestController.deleteApiTest(req, res, next)
 );
-apiTestRouter.post('/:id/run', (req, res, next) =>
+apiTestRouter.post('/:id/run', apiTestExecutionRateLimiter, apiTestConcurrencyLimiter, (req, res, next) =>
   apiTestController.runApiTest(req, res, next)
 );
 apiTestRouter.get('/:id/runs', (req, res, next) =>

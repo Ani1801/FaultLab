@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "FaultLab Backend API Server",
   "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -10,6 +13,7 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "test:auth": "tsx src/tests/auth.test.ts",
     "test:workspace": "tsx src/tests/workspace.test.ts",
     "test:project": "tsx src/tests/project.test.ts",
@@ -18,16 +22,20 @@
     "test:request": "tsx src/tests/requestLog.test.ts",
     "test:api-testing": "tsx src/tests/apiTesting.test.ts",
     "test:diagnostic": "tsx src/tests/diagnostic.test.ts",
-    "test:agent": "tsx src/tests/agent.test.ts"
+    "test:agent": "tsx src/tests/agent.test.ts",
+    "test:encryption": "tsx src/tests/encryptionConfig.test.ts",
+    "test:proxy": "tsx src/tests/proxyConfig.test.ts",
+    "test:reliability": "tsx src/tests/reliability.test.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.3.1",
+    "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.3",
+    "prisma": "6.19.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -38,7 +46,6 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.13.4",
     "@types/supertest": "^7.2.1",
-    "prisma": "^6.3.1",
     "rimraf": "^6.0.1",
     "supertest": "^7.3.2",
     "tsx": "^4.19.3",

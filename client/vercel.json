@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://faultlab-backend.onrender.com/api/v1/:path*"
+    },
+    {
+      "source": "/mock/:path*",
+      "destination": "https://faultlab-backend.onrender.com/mock/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+

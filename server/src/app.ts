@@ -11,6 +11,10 @@ import { mockRouter } from './modules/mock/mock.routes.js';
 export const createApp = (): Application => {
   const app = express();
 
+  // Trust first reverse proxy hop (Render / Cloudflare / Vercel)
+  // Ensures req.ip reflects actual client IP rather than reverse proxy IP
+  app.set('trust proxy', 1);
+
   // CORS configuration using validated environment variable
   const allowedOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
   app.use(
@@ -29,9 +33,9 @@ export const createApp = (): Application => {
     })
   );
 
-  // Standard middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Standard middleware with resource protection limits
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(cookieParser());
   app.use(requestLogger);
 

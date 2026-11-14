@@ -74,6 +74,22 @@ async function handleConnect(flags: Record<string, string>): Promise<void> {
   let pairingCode = flags['code'];
   const configPath = flags['config'];
 
+  let parsedServer: URL;
+  try {
+    parsedServer = new URL(serverUrl);
+  } catch {
+    console.error(`Error: Invalid server URL "${serverUrl}". Must be a valid HTTP or HTTPS URL.`);
+    process.exit(1);
+    return;
+  }
+
+  const isLoopback = parsedServer.hostname === 'localhost' || parsedServer.hostname === '127.0.0.1';
+  if (!isLoopback && parsedServer.protocol !== 'https:') {
+    console.error(`Error: Remote FaultLab server URL must use HTTPS for secure pairing and execution (received: ${serverUrl}).`);
+    process.exit(1);
+    return;
+  }
+
   if (!pairingCode) {
     pairingCode = await promptQuestion('Enter pairing code (e.g. FLAB-XXXX-YYYY): ');
   }
@@ -177,7 +193,12 @@ async function handleDisconnect(flags: Record<string, string>): Promise<void> {
 }
 
 async function runPoller(config: AgentStoredConfig): Promise<void> {
-  const poller = new AgentPoller(config);
+  const poller = new AgentPoller(config, {
+    onRevoked: () => {
+      console.log('Poller terminated due to credential revocation.');
+      process.exit(0);
+    },
+  });
 
   const cleanup = async () => {
     console.log('\nShutting down agent gracefully...');

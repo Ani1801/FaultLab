@@ -26,6 +26,8 @@ import {
   loadConfig,
   clearConfig,
 } from '../../../packages/faultlab-agent/dist/config.js';
+import { AgentApiClient } from '../../../packages/faultlab-agent/dist/client.js';
+import { validatePublicApiBaseUrl, env } from '../config/env.js';
 
 const app = createApp();
 
@@ -201,6 +203,63 @@ async function executeAgentTestSuite() {
   });
 
   // =========================================================================
+  // SECTION 3B: BACKEND URL VALIDATION & CLI CLIENT TESTS
+  // =========================================================================
+
+  await runTest('Backend URL: Rejects missing PUBLIC_API_BASE_URL in production', async () => {
+    const res = validatePublicApiBaseUrl(undefined, 'production');
+    assert(!res.isValid, 'Missing URL in production must be rejected');
+    assert(res.error?.includes('mandatory in production mode'), 'Must indicate mandatory in production');
+  });
+
+  await runTest('Backend URL: Rejects non-HTTPS PUBLIC_API_BASE_URL in production', async () => {
+    const res = validatePublicApiBaseUrl('http://faultlab-backend.onrender.com', 'production');
+    assert(!res.isValid, 'Plain HTTP in production must be rejected');
+    assert(res.error?.includes('must use HTTPS'), 'Must indicate HTTPS requirement');
+  });
+
+  await runTest('Backend URL: Rejects malformed PUBLIC_API_BASE_URL', async () => {
+    const res = validatePublicApiBaseUrl('not-a-valid-url', 'production');
+    assert(!res.isValid, 'Malformed URL must be rejected');
+  });
+
+  await runTest('Backend URL: Accepts valid HTTPS URL and normalizes trailing slashes and /api/v1', async () => {
+    const res = validatePublicApiBaseUrl('https://faultlab-backend.onrender.com/api/v1/', 'production');
+    assert(res.isValid, 'Valid HTTPS URL must be accepted');
+    assert(res.resolvedUrl === 'https://faultlab-backend.onrender.com', 'Must normalize to root origin without trailing /api/v1');
+  });
+
+  await runTest('Backend URL: Defaults to http://localhost:5000 in development mode', async () => {
+    const res = validatePublicApiBaseUrl(undefined, 'development');
+    assert(res.isValid, 'Default in development must be valid');
+    assert(res.resolvedUrl === 'http://localhost:5000', 'Must default to http://localhost:5000');
+  });
+
+  await runTest('Agent Client: Validates server URL and normalizes /api/v1 suffix in constructor', async () => {
+    // Valid URL with /api/v1 suffix
+    const client = new AgentApiClient('https://my-backend.onrender.com/api/v1/');
+    assert((client as any).serverUrl === 'https://my-backend.onrender.com', 'Must normalize URL to root origin');
+
+    // Invalid URL must throw
+    let didThrowInvalid = false;
+    try {
+      new AgentApiClient('invalid-url');
+    } catch {
+      didThrowInvalid = true;
+    }
+    assert(didThrowInvalid, 'AgentApiClient must throw on invalid URL');
+
+    // Unsupported protocol must throw
+    let didThrowProtocol = false;
+    try {
+      new AgentApiClient('ftp://some-host.com');
+    } catch {
+      didThrowProtocol = true;
+    }
+    assert(didThrowProtocol, 'AgentApiClient must throw on unsupported protocol');
+  });
+
+  // =========================================================================
   // SECTION 4: INTEGRATION TESTS - PAIRING PROTOCOL & API AUTHENTICATION
   // =========================================================================
 
@@ -285,6 +344,8 @@ async function executeAgentTestSuite() {
     assert(typeof res.body.session.instructions === 'string', 'instructions is string');
     assert(typeof res.body.session.connectCommand === 'string', 'connectCommand is string');
     assert(res.body.session.connectCommand.includes(res.body.session.pairingCode), 'Connect command includes code');
+    assert(res.body.session.connectCommand.includes('--server'), 'Connect command must include --server flag');
+    assert(res.body.session.connectCommand.includes(env.PUBLIC_API_BASE_URL), 'Connect command must include trusted server URL');
 
     pairingCodeA = res.body.session.pairingCode;
   });

@@ -22,7 +22,19 @@ export class AgentApiClient {
   private token?: string;
 
   constructor(serverUrl: string, token?: string) {
-    this.serverUrl = serverUrl.replace(/\/+$/, '');
+    let parsed: URL;
+    try {
+      parsed = new URL(serverUrl);
+    } catch {
+      throw new Error(`Invalid server URL: "${serverUrl}". Must be a valid HTTP or HTTPS URL.`);
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`Unsupported protocol "${parsed.protocol}". Server URL must use http: or https:.`);
+    }
+
+    // Normalize: strip trailing slashes and /api/v1 if included
+    this.serverUrl = serverUrl.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
     this.token = token;
   }
 

@@ -281,19 +281,64 @@ export async function executeRealHttpRequest(
     const elapsed = Date.now() - startTime;
     const sanitizedHeaders = sanitizeHeaders(finalResponse.headers);
 
-    // Read response text with size limiter
+    // Read response stream chunk-by-chunk with bounded size limit (1MB max memory allocation)
     let responseText = '';
     let responseSize = 0;
 
     try {
-      const buffer = await finalResponse.arrayBuffer();
-      responseSize = buffer.byteLength;
+      if (finalResponse.body) {
+        const reader = finalResponse.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let bytesAccumulated = 0;
+        let isTruncated = false;
 
-      if (buffer.byteLength > MAX_RESPONSE_BODY_SIZE) {
-        const sliced = buffer.slice(0, MAX_RESPONSE_BODY_SIZE);
-        responseText = new TextDecoder('utf-8').decode(sliced) + '\n[Response truncated: exceeds 1MB limit]';
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              if (bytesAccumulated + value.byteLength > MAX_RESPONSE_BODY_SIZE) {
+                const remaining = MAX_RESPONSE_BODY_SIZE - bytesAccumulated;
+                if (remaining > 0) {
+                  chunks.push(value.subarray(0, remaining));
+                  bytesAccumulated += remaining;
+                }
+                isTruncated = true;
+                // Immediately cancel further downloading from the network socket
+                try {
+                  await reader.cancel('Response body exceeded maximum allowed limit of 1MB');
+                } catch {
+                  // Ignore cancellation errors
+                }
+                break;
+              } else {
+                chunks.push(value);
+                bytesAccumulated += value.byteLength;
+              }
+            }
+          }
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // Already released or closed
+          }
+        }
+
+        responseSize = bytesAccumulated;
+        const totalBuffer = new Uint8Array(bytesAccumulated);
+        let offset = 0;
+        for (const chunk of chunks) {
+          totalBuffer.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        responseText = new TextDecoder('utf-8').decode(totalBuffer);
+        if (isTruncated) {
+          responseText += '\n[Response truncated: exceeds 1MB limit]';
+        }
       } else {
-        responseText = new TextDecoder('utf-8').decode(buffer);
+        responseText = '';
+        responseSize = 0;
       }
     } catch {
       responseText = '';

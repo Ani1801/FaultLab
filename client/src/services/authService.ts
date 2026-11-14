@@ -24,7 +24,7 @@ export const authService = {
    * Fetches the currently authenticated user's profile using the session cookie.
    */
   async getMe(): Promise<User> {
-    const response = await apiClient.get<AuthSuccessResponse>('/auth/me');
+    const response = await apiClient.get<AuthSuccessResponse>('/auth/me', { coldStartTolerance: true });
     return response.user;
   },
 

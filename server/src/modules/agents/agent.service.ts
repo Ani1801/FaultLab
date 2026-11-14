@@ -3,6 +3,7 @@
 // task queueing, execution evaluation, and Phase 8 diagnostic engine integration.
 
 import crypto from 'node:crypto';
+import { env } from '../../config/env.js';
 import { prisma } from '../../utils/prisma.js';
 import { evaluateTestAssertions } from '../api-testing/assertion.engine.js';
 import { diagnosticService } from '../diagnostics/diagnostic.service.js';
@@ -98,7 +99,8 @@ export class AgentService {
       },
     });
 
-    const instructions = `Run in your local terminal: npx faultlab-agent connect --code ${pairingCode} --origin ${dto.approvedOrigin}`;
+    const serverUrl = env.PUBLIC_API_BASE_URL;
+    const instructions = `Run in your local terminal: node packages/faultlab-agent/dist/cli.js connect --code ${pairingCode} --server ${serverUrl} --origin ${dto.approvedOrigin}`;
 
     return {
       pairingCode,

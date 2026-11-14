@@ -10,7 +10,7 @@ export const healthService = {
    */
   async getHealth(): Promise<HealthCheckResponse> {
     try {
-      return await apiClient.get<HealthCheckResponse>('/health');
+      return await apiClient.get<HealthCheckResponse>('/health', { coldStartTolerance: true });
     } catch (error) {
       if (error instanceof ApiError && error.data && typeof error.data === 'object') {
         const errorData = error.data as Record<string, unknown>;

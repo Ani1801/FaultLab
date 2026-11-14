@@ -5,8 +5,8 @@ import { prisma } from './utils/prisma.js';
 
 const app = createApp();
 
-const server = app.listen(env.PORT, () => {
-  logger.info(`FaultLab Server running in [${env.NODE_ENV}] mode on port ${env.PORT}`);
+const server = app.listen(env.PORT, '0.0.0.0', () => {
+  logger.info(`FaultLab Server running in [${env.NODE_ENV}] mode on port ${env.PORT} (bound to 0.0.0.0)`);
   logger.info(`Health check available at: http://localhost:${env.PORT}/api/v1/health`);
 });
 

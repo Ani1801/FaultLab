@@ -196,7 +196,7 @@ export const AgentPairingModal: React.FC<AgentPairingModalProps> = ({
   const rawCommand =
     session?.connectCommand ||
     session?.instructions ||
-    (session ? `npx faultlab-agent connect --code ${session.pairingCode} --origin ${session.approvedOrigin}` : '');
+    (session ? `node packages/faultlab-agent/dist/cli.js connect --code ${session.pairingCode} --server ${window.location.origin} --origin ${session.approvedOrigin}` : '');
   const commandToDisplay = rawCommand.replace(/^Run in your local terminal:\s*/i, '').trim();
 
   return (

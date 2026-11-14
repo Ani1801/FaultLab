@@ -36,6 +36,9 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 
+# Tools and local runtimes
+.tools/
+
 # Prisma generated artifacts (optional, keep schema in git)
 server/prisma/*.db
 server/prisma/*.db-journal
